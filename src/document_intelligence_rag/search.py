@@ -48,9 +48,11 @@ class SearchIndex:
         self.chunks: list[Chunk] = []
         self.word_counts: list[Counter] = []  # per chunk: how often each word appears
         self.doc_freq: Counter = Counter()    # per word: how many chunks contain it
+        self.documents: dict[str, Document] = {}  # whole documents, by file name
 
     def add(self, doc: Document) -> int:
         """Chunk a document and add it to the index. Returns the number of chunks."""
+        self.documents[doc.source] = doc
         new_chunks = chunk_document(doc)
         for chunk in new_chunks:
             counts = Counter(tokenize(chunk.text))
