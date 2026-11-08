@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 import anthropic
 
 from document_intelligence_rag import config
+from document_intelligence_rag.loaders import LoadError, UnsupportedFileError, is_url, load_url
 from document_intelligence_rag.search import SearchIndex
 
 SYSTEM_PROMPT = """\
@@ -26,6 +27,8 @@ Use the tools to find information. Answer only from what the tools return, never
 If a search finds nothing useful, try again with different words or synonyms before giving up.
 For broad questions such as "summarize this file", read the whole document.
 File names can be misleading: search or read before saying something isn't in the library.
+If the user shares a link, add it with add_link before answering questions about it.
+Image files are stored as AI-written descriptions; mention that when you answer from one.
 Cite the file each fact comes from in square brackets, like [meeting_notes.docx].
 If the library doesn't contain the answer, say so. Keep answers short."""
 
@@ -68,6 +71,21 @@ TOOLS = [
             "required": ["file_name"],
         },
     },
+    {
+        "name": "add_link",
+        "description": (
+            "Download a web page (http or https link) and add it to the library, so it can be "
+            "searched and read. Use it when the user shares a link or asks about one that "
+            "isn't in the library yet."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The full link, starting with http:// or https://"},
+            },
+            "required": ["url"],
+        },
+    },
 ]
 
 MAX_TOOL_ROUNDS = 8  # safety limit, so a confused agent can't loop (and spend) forever
@@ -85,6 +103,7 @@ class Agent:
     index: SearchIndex
     client: anthropic.Anthropic
     messages: list = field(default_factory=list)  # the whole conversation so far
+    user: str = "me"  # who is chatting; recorded on links they add
     verbose: bool = True  # print each tool call, so you can watch the agent work
 
     # ---- the tools ---------------------------------------------------
@@ -127,6 +146,19 @@ class Agent:
             )
         return doc.text
 
+    def add_link(self, url: str) -> str:
+        if not is_url(url):
+            return "That isn't a web link. It must start with http:// or https://"
+        if url in self.index.documents:
+            return f"{url} is already in the library."
+        try:
+            doc = load_url(url, added_by=self.user)
+        except (LoadError, UnsupportedFileError) as e:
+            return f"Couldn't add the link: {e}"
+        chunks = self.index.add(doc)
+        first_line = doc.text.strip().splitlines()[0][:100]
+        return f"Added {url} ({chunks} chunks). It starts with: {first_line}"
+
     def run_tool(self, name: str, tool_input: dict) -> tuple[str, bool]:
         """Run one tool. Returns (result text, is_error)."""
         if self.verbose:
@@ -139,6 +171,8 @@ class Agent:
                 return self.list_documents(), False
             if name == "read_document":
                 return self.read_document(str(tool_input["file_name"])), False
+            if name == "add_link":
+                return self.add_link(str(tool_input["url"])), False
             return f"Unknown tool: {name}", True
         except KeyError as e:
             return f"Missing input: {e}", True

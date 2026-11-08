@@ -1,10 +1,14 @@
-"""Step 5: chat with the agent about your files.
+"""Step 5-6: chat with the agent about your files, images and links.
 
 Run with:
     uv run src/document_intelligence_rag/experiments/chat.py
 
 Type a question and press Enter. Follow-up questions remember the conversation.
-Commands: "new" starts a fresh conversation, "quit" exits.
+You can also paste a link in your question, and the agent can add it.
+Commands:
+    add <file path or link>   add a file, image or web page to the library
+    new                       start a fresh conversation
+    quit                      exit
 """
 
 from pathlib import Path
@@ -13,30 +17,48 @@ import anthropic
 
 from document_intelligence_rag import config
 from document_intelligence_rag.agent import Agent
-from document_intelligence_rag.loaders import UnsupportedFileError, load_file
+from document_intelligence_rag.loaders import LoadError, UnsupportedFileError, load_file, load_source
 from document_intelligence_rag.search import SearchIndex
 
 SAMPLES_DIR = Path(__file__).resolve().parents[3] / "samples"
 
 
-def build_index(folder: Path) -> SearchIndex:
+def build_index(folder: Path, client: anthropic.Anthropic) -> SearchIndex:
     """Load and index every supported file in a folder."""
     index = SearchIndex()
     for path in sorted(folder.iterdir()):
         if not path.is_file():
             continue
         try:
-            index.add(load_file(path, added_by="me"))
+            index.add(load_file(path, added_by="me", client=client))
         except UnsupportedFileError:
             print(f"Skipped {path.name} (unsupported file type)")
+        except LoadError as e:
+            print(f"Skipped {path.name}: {e}")
     return index
 
 
+def add_to_library(index: SearchIndex, source: str, client: anthropic.Anthropic) -> None:
+    source = source.strip().strip('"')  # allow pasted paths with quotes
+    try:
+        doc = load_source(source, added_by="me", client=client)
+    except (FileNotFoundError, UnsupportedFileError, LoadError) as e:
+        print(f"Couldn't add it: {e}\n")
+        return
+    if doc.source in index.documents:
+        print(f"{doc.source} is already in the library.\n")
+        return
+    chunks = index.add(doc)
+    print(f"Added {doc.source} ({doc.kind}, {chunks} chunks).\n")
+
+
 def main() -> None:
-    index = build_index(SAMPLES_DIR)
-    agent = Agent(index=index, client=anthropic.Anthropic())
+    client = anthropic.Anthropic()
+    print("Loading library (images get described by Claude, which takes a moment)...")
+    index = build_index(SAMPLES_DIR, client)
+    agent = Agent(index=index, client=client)
     print(f"Library: {len(index.documents)} documents  |  model: {config.MODEL}")
-    print('Ask a question. Type "new" for a fresh conversation, "quit" to exit.\n')
+    print('Ask a question. Commands: "add <file or link>", "new", "quit".\n')
 
     while True:
         try:
@@ -50,6 +72,9 @@ def main() -> None:
         if question.lower() == "new":
             agent.reset()
             print("(Started a new conversation.)\n")
+            continue
+        if question.lower().startswith("add "):
+            add_to_library(index, question[4:], client)
             continue
 
         try:
