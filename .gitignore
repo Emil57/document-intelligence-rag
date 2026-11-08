@@ -221,3 +221,5 @@ __marimo__/
 
 
 samples/
+# The app's saved library (uploaded files and index)
+data/

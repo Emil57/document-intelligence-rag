@@ -105,6 +105,7 @@ class Agent:
     messages: list = field(default_factory=list)  # the whole conversation so far
     user: str = "me"  # who is chatting; recorded on links they add
     verbose: bool = True  # print each tool call, so you can watch the agent work
+    tool_calls: list[str] = field(default_factory=list)  # tools used for the latest question
 
     # ---- the tools ---------------------------------------------------
     def search_library(self, query: str) -> str:
@@ -161,8 +162,9 @@ class Agent:
 
     def run_tool(self, name: str, tool_input: dict) -> tuple[str, bool]:
         """Run one tool. Returns (result text, is_error)."""
+        args = ", ".join(f"{k}={v!r}" for k, v in tool_input.items())
+        self.tool_calls.append(f"{name}({args})")
         if self.verbose:
-            args = ", ".join(f"{k}={v!r}" for k, v in tool_input.items())
             print(f"  > {name}({args})")
         try:
             if name == "search_library":
@@ -181,6 +183,7 @@ class Agent:
     def ask(self, question: str) -> tuple[str, Usage]:
         """Answer one question, using tools as needed. Remembers earlier questions."""
         self.messages.append({"role": "user", "content": question})
+        self.tool_calls = []
         usage = Usage()
 
         for _ in range(MAX_TOOL_ROUNDS):
