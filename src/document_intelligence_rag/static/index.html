@@ -18,25 +18,20 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  header { padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
   header h1 { margin: 0; font-size: 18px; }
   header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .user { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
 
-  main {
-    display: grid; grid-template-columns: 320px 1fr; gap: 16px;
-    padding: 16px; height: calc(100vh - 62px);
-  }
-  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
-  h2 { font-size: 14px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--border); }
-
-  /* Library */
-  .add { padding: 12px 14px; display: grid; gap: 8px; border-bottom: 1px solid var(--border); }
-  .row { display: flex; gap: 6px; }
-  input[type=url], textarea {
+  input[type=url], input[type=text], input[type=password], textarea, select {
     flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--bg); color: var(--text); font: inherit;
   }
@@ -46,6 +41,30 @@
   }
   button:disabled { opacity: .5; cursor: default; }
   button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 500; }
+  .row { display: flex; gap: 6px; }
+  .error-text { color: var(--error); font-size: 14px; min-height: 1.2em; }
+
+  /* Login */
+  #auth-view { display: grid; place-items: center; padding: 48px 16px; }
+  .card { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+  .card h2 { margin: 0 0 4px; font-size: 20px; }
+  .card p { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  .card form { display: grid; gap: 10px; }
+  .link-button { background: none; color: var(--accent); padding: 0; font-weight: 500; }
+
+  /* App */
+  main {
+    display: grid; grid-template-columns: 340px 1fr; gap: 16px;
+    padding: 16px; height: calc(100vh - 62px);
+  }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
+  h2.section-title { font-size: 14px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .block { padding: 12px 14px; display: grid; gap: 8px; border-bottom: 1px solid var(--border); }
+  .hint { font-size: 12px; color: var(--muted); }
+
+  #members { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+  #members li { display: flex; align-items: center; gap: 6px; }
+
   .upload-label { display: block; text-align: center; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); cursor: pointer; }
   .upload-label:hover { border-color: var(--accent); color: var(--text); }
   #file-input { display: none; }
@@ -56,12 +75,11 @@
   #documents li { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; }
   #documents li:hover { background: var(--bg); }
   .doc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg); color: var(--muted); border: 1px solid var(--border); white-space: nowrap; }
   .delete { padding: 2px 8px; background: transparent; color: var(--muted); font-weight: 400; }
   .delete:hover { color: var(--error); }
   .empty { color: var(--muted); padding: 12px 8px; font-size: 14px; }
 
-  /* Chat */
   .chat-head { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); padding-right: 10px; }
   .chat-head h2 { border: 0; }
   #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -76,8 +94,10 @@
   form.ask textarea { resize: none; height: 44px; }
 
   @media (max-width: 760px) {
+    header { padding: 12px 16px; }
+    header p { display: none; }
     main { grid-template-columns: 1fr; height: auto; padding: 16px; }
-    section.library { max-height: 45vh; }
+    section.library { max-height: 60vh; }
     section.chat { height: 75vh; }
     .msg { max-width: 95%; }
   }
@@ -85,14 +105,57 @@
 </head>
 <body>
 <header>
-  <h1>Document Intelligence</h1>
-  <p>Share documents, images and links, then ask questions about them.</p>
+  <div>
+    <h1>Document Intelligence</h1>
+    <p>Share documents, images and links, then ask questions about them.</p>
+  </div>
+  <div class="user" id="user-box" hidden>
+    <span id="username"></span>
+    <button class="ghost" id="logout">Log out</button>
+  </div>
 </header>
 
-<main>
+<!-- Login / sign-up -->
+<div id="auth-view" hidden>
+  <div class="card">
+    <h2 id="auth-title">Log in</h2>
+    <p id="auth-subtitle">Welcome back.</p>
+    <form id="auth-form">
+      <input type="text" id="auth-username" placeholder="Username" autocomplete="username" required>
+      <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" required>
+      <input type="text" id="auth-code" placeholder="Sign-up code" hidden>
+      <div class="error-text" id="auth-error"></div>
+      <button type="submit" id="auth-submit">Log in</button>
+    </form>
+    <p style="margin: 14px 0 0">
+      <span id="auth-switch-text">No account yet?</span>
+      <button class="link-button" id="auth-switch">Sign up</button>
+    </p>
+  </div>
+</div>
+
+<!-- The app -->
+<main id="app-view" hidden>
   <section class="library">
-    <h2>Library</h2>
-    <div class="add">
+    <h2 class="section-title">Library</h2>
+    <div class="block">
+      <div class="row">
+        <select id="library-select" aria-label="Library"></select>
+        <button class="ghost" id="new-library" title="Create a library to share with others">+ Shared</button>
+      </div>
+      <div class="hint" id="library-hint"></div>
+    </div>
+
+    <div class="block" id="members-block" hidden>
+      <strong style="font-size: 13px">Members</strong>
+      <ul id="members"></ul>
+      <form class="row" id="invite-form" hidden>
+        <input type="text" id="invite-input" placeholder="Invite by username" required>
+        <button type="submit">Invite</button>
+      </form>
+    </div>
+
+    <div class="block">
       <label class="upload-label" for="file-input">+ Upload files (PDF, Word, text, images)</label>
       <input id="file-input" type="file" multiple
              accept=".pdf,.docx,.txt,.md,.csv,.json,.html,.htm,.png,.jpg,.jpeg,.gif,.webp">
@@ -107,12 +170,10 @@
 
   <section class="chat">
     <div class="chat-head">
-      <h2>Chat</h2>
+      <h2 class="section-title">Chat</h2>
       <button class="ghost" id="new-chat">New chat</button>
     </div>
-    <div id="messages">
-      <div class="empty">Ask anything about your library. Follow-up questions remember the conversation.</div>
-    </div>
+    <div id="messages"></div>
     <form class="ask" id="ask-form">
       <textarea id="question" placeholder="Ask a question… (Enter to send, Shift+Enter for a new line)" required></textarea>
       <button type="submit" id="send">Send</button>
@@ -122,23 +183,30 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  let conversationId = null;
+  const state = { me: null, libraryId: null, conversationId: null, signingUp: false, codeRequired: false };
 
-  // ---- helpers -----------------------------------------------------------
+  // ---- helpers -------------------------------------------------------------
   async function api(path, options = {}) {
     const response = await fetch(path, options);
     const body = await response.json().catch(() => ({}));
+    if (response.status === 401 && !path.startsWith("/api/login") && !path.startsWith("/api/signup")) {
+      showAuth();  // session expired or logged out
+    }
     if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
     return body;
   }
+  const postJson = (path, data) => api(path, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  });
+  const lib = (path = "") => `/api/libraries/${state.libraryId}${path}`;
+  const currentLibrary = () => state.me.libraries.find((l) => l.id === state.libraryId);
 
   function setStatus(text, isError = false) {
     $("status").textContent = text;
     $("status").className = isError ? "error" : "";
   }
 
-  // Answers are plain text with a little Markdown. We escape everything
-  // first (so documents can't inject HTML), then add bold and citation styling.
+  // Escape everything first (documents must not inject HTML), then style bold and citations.
   function formatAnswer(text) {
     const escaped = text.replace(/[&<>"']/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -147,15 +215,147 @@
       .replace(/\[([^\]\n]+\.[a-z0-9]{2,5}|https?:[^\]\s]+)\]/gi, '<span class="cite">$1</span>');
   }
 
-  // ---- library -----------------------------------------------------------
+  // ---- login / sign-up -----------------------------------------------------------
+  function showAuth() {
+    state.me = null;
+    $("app-view").hidden = true;
+    $("user-box").hidden = true;
+    $("auth-view").hidden = false;
+  }
+
+  function renderAuthMode() {
+    const s = state.signingUp;
+    $("auth-title").textContent = s ? "Create an account" : "Log in";
+    $("auth-subtitle").textContent = s ? "You'll get a private library right away." : "Welcome back.";
+    $("auth-submit").textContent = s ? "Sign up" : "Log in";
+    $("auth-switch-text").textContent = s ? "Already have an account?" : "No account yet?";
+    $("auth-switch").textContent = s ? "Log in" : "Sign up";
+    $("auth-password").autocomplete = s ? "new-password" : "current-password";
+    $("auth-code").hidden = !(s && state.codeRequired);
+    $("auth-code").required = s && state.codeRequired;
+    $("auth-error").textContent = "";
+  }
+
+  $("auth-switch").addEventListener("click", () => { state.signingUp = !state.signingUp; renderAuthMode(); });
+
+  $("auth-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = { username: $("auth-username").value, password: $("auth-password").value };
+    if (state.signingUp) data.signup_code = $("auth-code").value;
+    try {
+      await postJson(state.signingUp ? "/api/signup" : "/api/login", data);
+      $("auth-password").value = "";
+      await start();
+    } catch (e) { $("auth-error").textContent = e.message; }
+  });
+
+  $("logout").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST" }).catch(() => {});
+    showAuth();
+  });
+
+  // ---- libraries -------------------------------------------------------------------
+  async function loadMe(selectId) {
+    state.me = await api("/api/me");
+    $("username").textContent = state.me.username;
+    const saved = Number(localStorage.getItem("libraryId"));
+    const ids = state.me.libraries.map((l) => l.id);
+    state.libraryId = [selectId, saved].find((id) => ids.includes(id)) ?? ids[0];
+
+    const select = $("library-select");
+    select.innerHTML = "";
+    for (const l of state.me.libraries) {
+      const option = document.createElement("option");
+      option.value = l.id;
+      option.textContent = l.is_personal ? `${l.name} (private)` : `${l.name} (shared, ${l.members})`;
+      select.append(option);
+    }
+    select.value = state.libraryId;
+    await openLibrary();
+  }
+
+  async function openLibrary() {
+    try { localStorage.setItem("libraryId", state.libraryId); } catch {}
+    const l = currentLibrary();
+    $("library-hint").textContent = l.is_personal
+      ? "Only you can see this library."
+      : `Shared library. You are ${l.role === "owner" ? "the owner" : "a member"}.`;
+    resetChat();
+    await Promise.all([loadDocuments(), loadMembers()]);
+  }
+
+  $("library-select").addEventListener("change", (event) => {
+    state.libraryId = Number(event.target.value);
+    setStatus("");
+    openLibrary();
+  });
+
+  $("new-library").addEventListener("click", async () => {
+    const name = prompt("Name of the new shared library (for example: Family, Work, Trip to Lisbon)");
+    if (!name) return;
+    try {
+      const created = await postJson("/api/libraries", { name });
+      await loadMe(created.id);
+      setStatus("Library created. Invite people with their username.");
+    } catch (e) { setStatus(e.message, true); }
+  });
+
+  async function loadMembers() {
+    const l = currentLibrary();
+    $("members-block").hidden = l.is_personal;
+    if (l.is_personal) return;
+    const isOwner = l.role === "owner";
+    $("invite-form").hidden = !isOwner;
+    const members = await api(lib("/members"));
+    const list = $("members");
+    list.innerHTML = "";
+    for (const m of members) {
+      const item = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = m.username + (m.username === state.me.username ? " (you)" : "");
+      item.append(name);
+      if (m.role === "owner") {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "owner";
+        item.append(badge);
+      } else if (isOwner) {
+        const remove = document.createElement("button");
+        remove.className = "delete";
+        remove.textContent = "×";
+        remove.title = `Remove ${m.username}`;
+        remove.onclick = async () => {
+          if (!confirm(`Remove ${m.username} from this library?`)) return;
+          try { await api(lib(`/members/${encodeURIComponent(m.username)}`), { method: "DELETE" }); await loadMe(state.libraryId); }
+          catch (e) { setStatus(e.message, true); }
+        };
+        item.append(remove);
+      }
+      list.append(item);
+    }
+  }
+
+  $("invite-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const username = $("invite-input").value.trim();
+    try {
+      await postJson(lib("/members"), { username });
+      $("invite-input").value = "";
+      setStatus(`${username} can now use this library.`);
+      await loadMe(state.libraryId);
+    } catch (e) { setStatus(e.message, true); }
+  });
+
+  // ---- documents -------------------------------------------------------------------
   async function loadDocuments() {
-    const documents = await api("/api/documents");
+    const documents = await api(lib("/documents"));
     const list = $("documents");
     list.innerHTML = "";
     if (documents.length === 0) {
       list.innerHTML = '<li class="empty">No documents yet. Upload a file or add a link.</li>';
       return;
     }
+    const l = currentLibrary();
     for (const doc of documents) {
       const item = document.createElement("li");
       const name = document.createElement("span");
@@ -164,13 +364,16 @@
       name.title = `${doc.source}\n${doc.characters.toLocaleString()} characters, added by ${doc.added_by}`;
       const badge = document.createElement("span");
       badge.className = "badge";
-      badge.textContent = doc.kind;
-      const remove = document.createElement("button");
-      remove.className = "delete";
-      remove.textContent = "×";
-      remove.title = "Remove from library";
-      remove.onclick = () => deleteDocument(doc.source);
-      item.append(name, badge, remove);
+      badge.textContent = l.is_personal ? doc.kind : `${doc.kind} · ${doc.added_by}`;
+      item.append(name, badge);
+      if (l.role === "owner" || doc.added_by === state.me.username) {
+        const remove = document.createElement("button");
+        remove.className = "delete";
+        remove.textContent = "×";
+        remove.title = "Remove from library";
+        remove.onclick = () => deleteDocument(doc.source);
+        item.append(remove);
+      }
       list.append(item);
     }
   }
@@ -178,7 +381,7 @@
   async function deleteDocument(source) {
     if (!confirm(`Remove ${source} from the library?`)) return;
     try {
-      await api(`/api/documents?source=${encodeURIComponent(source)}`, { method: "DELETE" });
+      await api(lib(`/documents?source=${encodeURIComponent(source)}`), { method: "DELETE" });
       setStatus(`Removed ${source}.`);
       loadDocuments();
     } catch (e) { setStatus(e.message, true); }
@@ -192,31 +395,36 @@
       const form = new FormData();
       form.append("file", file);
       try {
-        const doc = await api("/api/documents/upload", { method: "POST", body: form });
+        const doc = await api(lib("/documents/upload"), { method: "POST", body: form });
         setStatus(`Added ${doc.source} (${doc.chunks} chunks).`);
       } catch (e) { setStatus(`${file.name}: ${e.message}`, true); }
       loadDocuments();
     }
-    event.target.value = "";  // allow choosing the same file again
+    event.target.value = "";
   });
 
   $("link-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const url = $("link-input").value.trim();
     setStatus("Downloading the page…");
     try {
-      const doc = await api("/api/documents/link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
+      const doc = await postJson(lib("/documents/link"), { url: $("link-input").value.trim() });
       setStatus(`Added the link (${doc.chunks} chunks).`);
       $("link-input").value = "";
       loadDocuments();
     } catch (e) { setStatus(e.message, true); }
   });
 
-  // ---- chat --------------------------------------------------------------
+  // ---- chat ----------------------------------------------------------------------------
+  function resetChat() {
+    state.conversationId = null;
+    const l = currentLibrary();
+    $("messages").innerHTML = "";
+    const hint = document.createElement("div");
+    hint.className = "empty";
+    hint.textContent = `Ask anything about "${l.name}". Follow-up questions remember the conversation.`;
+    $("messages").append(hint);
+  }
+
   function addMessage(kind, text, meta) {
     const empty = $("messages").querySelector(".empty");
     if (empty) empty.remove();
@@ -244,19 +452,16 @@
     addMessage("you", question);
     const waiting = addMessage("claude", "");
     waiting.innerHTML = '<span class="thinking">Searching your library…</span>';
+    const libraryId = state.libraryId;
 
     try {
-      const reply = await api("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question, conversation_id: conversationId }),
-      });
-      conversationId = reply.conversation_id;
+      const reply = await postJson(lib("/chat"), { message: question, conversation_id: state.conversationId });
+      if (libraryId !== state.libraryId) return;  // user switched library meanwhile
+      state.conversationId = reply.conversation_id;
       waiting.remove();
       const tools = reply.tools.length ? `Used: ${reply.tools.join(", ")} · ` : "";
       const tokens = `${reply.usage.input_tokens.toLocaleString()} tokens in, ${reply.usage.output_tokens.toLocaleString()} out`;
       addMessage("claude", reply.answer, tools + tokens);
-      // The agent may have added a link during the chat.
       if (reply.tools.some((t) => t.startsWith("add_link"))) loadDocuments();
     } catch (e) {
       waiting.remove();
@@ -267,7 +472,6 @@
     }
   });
 
-  // Enter sends, Shift+Enter adds a new line.
   $("question").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -275,12 +479,24 @@
     }
   });
 
-  $("new-chat").addEventListener("click", () => {
-    conversationId = null;
-    $("messages").innerHTML = '<div class="empty">New conversation. Ask anything about your library.</div>';
-  });
+  $("new-chat").addEventListener("click", resetChat);
 
-  loadDocuments().catch((e) => setStatus(e.message, true));
+  // ---- start -----------------------------------------------------------------------------
+  async function start() {
+    try {
+      await loadMe();
+      $("auth-view").hidden = true;
+      $("app-view").hidden = false;
+      $("user-box").hidden = false;
+    } catch {
+      showAuth();
+    }
+  }
+
+  api("/api/signup-info")
+    .then((info) => { state.codeRequired = info.code_required; renderAuthMode(); })
+    .catch(() => renderAuthMode());
+  start();
 </script>
 </body>
 </html>

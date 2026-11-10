@@ -16,7 +16,9 @@ and the [Claude API](https://platform.claude.com).
 - **An agent, not just a search box:** Claude decides whether to search, list or read whole
   documents, and searches again with other words when the first try finds nothing
 - **Conversations:** follow-up questions such as "and who decided that?" work
-- **Web app:** upload files, add links and chat in your browser. The library is saved to disk
+- **Web app:** upload files, add links and chat in your browser. Everything is saved to disk
+- **Accounts and sharing:** everyone gets a private library, and can create shared libraries
+  and invite others by username
 
 ## Quick start
 
@@ -43,12 +45,16 @@ ANTHROPIC_API_KEY=sk-ant-...
 uv run uvicorn document_intelligence_rag.web:app --reload
 ```
 
-Open http://127.0.0.1:8000, upload some files or add a link, and start asking questions.
-Press Ctrl+C to stop the server.
+Open http://127.0.0.1:8000, create an account, upload some files or add a link, and start
+asking questions. Press Ctrl+C to stop the server.
 
-> **There is no sign-in yet.** Keep the app on your own computer (the default). If you start it
-> with `--host 0.0.0.0` so other devices can reach it, anyone on that network can use it and
-> spend your API credits.
+To work with others, choose **+ Shared**, name the library, and invite people by their
+username (they need to sign up first). In a shared library, members can add documents and
+remove their own; the owner can remove anything and manage members.
+
+> **Before letting others reach the app** (for example with `--host 0.0.0.0`), set
+> `DOCINTEL_SIGNUP_CODE` so strangers can't create accounts and spend your API credits.
+> The app doesn't use HTTPS yet, so only do this on a network you trust.
 
 ### Or chat in the terminal
 
@@ -76,7 +82,8 @@ Type questions; `add <file or link>` adds a source, `new` starts a fresh convers
         │       that overlap a little          ├─ search_library ───┤
         ▼                                      ├─ list_documents ───┤
  search.py    → keyword index (BM25),          ├─ read_document ────┤
-                saved to data/library.json     ├─ add_link ─────────┘
+                one per library                ├─ add_link ─────────┘
+ store.py     → saved in data/app.db
                                                ▼
                                          answer with [citations]
 ```
@@ -96,10 +103,12 @@ src/document_intelligence_rag/
 ├── config.py        settings: model, data folder, chunks per question
 ├── loaders.py       files, images and links → Document (plain text)
 ├── chunking.py      split documents into overlapping chunks
-├── search.py        BM25 keyword search; save/load the library
+├── search.py        BM25 keyword search
 ├── rag.py           one-shot RAG: search once, then ask Claude (step 4)
 ├── agent.py         the agent: tools, agent loop and conversation memory
-├── web.py           FastAPI server and API
+├── auth.py          password hashing and login tokens
+├── store.py         SQLite database: users, sessions, libraries, members, documents
+├── web.py           FastAPI server and API, with permission checks
 ├── static/
 │   └── index.html   the web page
 └── experiments/     small scripts from each learning step
@@ -120,9 +129,11 @@ Optional settings go in `.env`:
 |---|---|---|
 | `ANTHROPIC_API_KEY` | (required) | Your Claude API key |
 | `DOCINTEL_MODEL` | `claude-haiku-5-5` | Model that answers questions and describes images. Try `claude-sonnet-5-5` or `claude-opus-5-5` for better answers |
-| `DOCINTEL_DATA_DIR` | `data` | Where the web app saves the library (`library.json`) and uploaded files (`files/`) |
+| `DOCINTEL_SIGNUP_CODE` | (none) | If set, creating an account requires this code |
+| `DOCINTEL_DATA_DIR` | `data` | Where the web app saves its database (`app.db`) and uploaded files (`files/<library id>/`) |
 
-The `data/` folder is in `.gitignore` because it holds your private documents.
+The `data/` folder is in `.gitignore` because it holds accounts and private documents.
+Passwords are stored only as salted scrypt hashes, and login tokens only as SHA-256 hashes.
 
 ## Costs
 
@@ -140,14 +151,15 @@ Set a monthly spend limit at platform.claude.com to avoid surprises.
 - [x] 5. Agent with tools and conversation memory
 - [x] 6. Web links and image descriptions
 - [x] 7. Web app with a saved library
-- [ ] 8. Users and sharing: sign-in, private libraries, shared libraries for groups
-- [ ] 9. Going online: database, file storage, hosting, and protecting `add_link`
-      from reaching private network addresses
+- [x] 8. Users and sharing: sign-in, private libraries, shared libraries for groups
+- [ ] 9. Going online: hosting with HTTPS, secure cookies, login rate limits, and protecting
+      `add_link` from reaching private network addresses
 - [ ] Later: search by meaning (embeddings), audio/video transcription, answer-quality tests
 
 ## Known limitations
 
-- No sign-in yet (step 8): everyone who can reach the app shares one library
+- No HTTPS yet, and no limit on login attempts (step 9)
+- Libraries from the step 7 version (`data/library.json`) aren't imported; upload them again
 - Conversations live in memory, so restarting the server starts fresh chats (the library stays)
 - Scanned PDFs (photos of pages) have no text to extract
 - Old Word `.doc` files aren't supported, only `.docx`

@@ -13,12 +13,13 @@ The "agent loop":
     3. If Claude answers, we're done.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import anthropic
 
 from document_intelligence_rag import config
-from document_intelligence_rag.loaders import LoadError, UnsupportedFileError, is_url, load_url
+from document_intelligence_rag.loaders import Document, LoadError, UnsupportedFileError, is_url, load_url
 from document_intelligence_rag.search import SearchIndex
 
 SYSTEM_PROMPT = """\
@@ -106,6 +107,9 @@ class Agent:
     user: str = "me"  # who is chatting; recorded on links they add
     verbose: bool = True  # print each tool call, so you can watch the agent work
     tool_calls: list[str] = field(default_factory=list)  # tools used for the latest question
+    # How add_link stores a new document. The web app passes a function that
+    # also saves it to the database; by default it only goes into the index.
+    add_document: Callable[[Document], int] | None = None
 
     # ---- the tools ---------------------------------------------------
     def search_library(self, query: str) -> str:
@@ -156,7 +160,10 @@ class Agent:
             doc = load_url(url, added_by=self.user)
         except (LoadError, UnsupportedFileError) as e:
             return f"Couldn't add the link: {e}"
-        chunks = self.index.add(doc)
+        try:
+            chunks = self.add_document(doc) if self.add_document else self.index.add(doc)
+        except Exception as e:  # e.g. someone else added the same link a moment ago
+            return f"Couldn't add the link: {e}"
         first_line = doc.text.strip().splitlines()[0][:100]
         return f"Added {url} ({chunks} chunks). It starts with: {first_line}"
 

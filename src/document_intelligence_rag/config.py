@@ -17,8 +17,12 @@ MODEL = os.getenv("DOCINTEL_MODEL", "claude-haiku-5-5")
 # How many chunks to send to Claude with each question.
 CHUNKS_PER_QUESTION = 5
 
-# Where the web app keeps the library. This folder is in .gitignore,
-# because it holds your (private) files.
+# Where the web app keeps its data. This folder is in .gitignore,
+# because it holds private files and accounts.
 DATA_DIR = Path(os.getenv("DOCINTEL_DATA_DIR", "data"))
-FILES_DIR = DATA_DIR / "files"           # copies of uploaded files
-LIBRARY_PATH = DATA_DIR / "library.json"  # extracted text of every document
+FILES_DIR = DATA_DIR / "files"  # copies of uploaded files, one folder per library
+DB_PATH = DATA_DIR / "app.db"   # database: users, libraries, documents
+
+# If set, people need this code to create an account. Use it whenever the app
+# can be reached by others, so strangers can't sign up and spend your credits.
+SIGNUP_CODE = os.getenv("DOCINTEL_SIGNUP_CODE") or None
