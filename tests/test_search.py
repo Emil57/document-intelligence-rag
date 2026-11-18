@@ -40,11 +40,3 @@ def test_remove_takes_a_document_out_of_search():
 
 def test_remove_unknown_document_returns_false():
     assert make_index().remove("nope.txt") is False
-
-
-def test_save_and_load_keep_the_library(tmp_path):
-    path = tmp_path / "library.json"
-    make_index().save(path)
-    loaded = SearchIndex.load(path)
-    assert set(loaded.documents) == {"cats.txt", "budget.txt", "dogs.txt"}
-    assert loaded.search("walk")[0].chunk.source == "dogs.txt"

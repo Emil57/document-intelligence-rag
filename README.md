@@ -56,17 +56,6 @@ remove their own; the owner can remove anything and manage members.
 > `DOCINTEL_SIGNUP_CODE` so strangers can't create accounts and spend your API credits.
 > The app doesn't use HTTPS yet, so only do this on a network you trust.
 
-### Or chat in the terminal
-
-Put some files in a `samples/` folder in the project, then:
-
-```bash
-uv run src/document_intelligence_rag/experiments/chat.py
-```
-
-Type questions; `add <file or link>` adds a source, `new` starts a fresh conversation,
-`quit` exits. Each tool the agent uses is printed, so you can watch it work.
-
 ### Run the tests
 
 ```bash
@@ -114,22 +103,13 @@ src/document_intelligence_rag/
 ├── fetch.py         safe link downloads: public addresses only, size and time limits
 ├── chunking.py      split documents into overlapping chunks
 ├── search.py        BM25 keyword search
-├── rag.py           one-shot RAG: search once, then ask Claude (step 4)
 ├── agent.py         the agent: tools, agent loop and conversation memory
 ├── auth.py          password hashing and login tokens
 ├── store.py         SQLite database: users, sessions, libraries, members, documents
 ├── web.py           FastAPI server and API, with permission checks
-├── static/
-│   └── index.html   the web page
-└── experiments/     small scripts from each learning step
-    ├── first_call.py      step 1: first Claude call
-    ├── ask_a_file.py      step 2: ask about one file
-    ├── search_files.py    step 3: search without AI
-    ├── ask_library.py     step 4: RAG answer with sources
-    └── chat.py            steps 5–6: chat with the agent in the terminal
+└── static/
+    └── index.html   the web page
 ```
-
-Each experiment explains how to run it at the top of the file.
 
 ## Configuration
 
@@ -149,7 +129,7 @@ Passwords are stored only as salted scrypt hashes, and login tokens only as SHA-
 
 The API is billed per token (roughly ¾ of a word). With the default model, Claude Haiku 5.5
 ($0.10 per million input tokens, $0.50 per million output), a typical question costs well under
-a tenth of a cent. The web page and terminal chat show the tokens used for every answer.
+a tenth of a cent. The web page shows the tokens used for every answer.
 Set a monthly spend limit at platform.claude.com to avoid surprises.
 
 ## Roadmap

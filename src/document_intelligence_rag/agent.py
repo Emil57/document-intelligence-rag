@@ -1,11 +1,9 @@
 """The agent: Claude with tools to explore your library, and memory of the conversation.
 
-How it differs from rag.py (step 4):
-- rag.py searches once, with the exact question, then asks Claude.
-- Here Claude decides what to do. It can list the documents, search
-  (again with other words if the first search finds nothing), or read a
-  whole document, and it answers when it has enough information.
-- The conversation is kept, so follow-up questions like "and who decided that?" work.
+Claude decides what to do. It can list the documents, search (again with
+other words if the first search finds nothing), or read a whole document,
+and it answers when it has enough information. The conversation is kept,
+so follow-up questions like "and who decided that?" work.
 
 The "agent loop":
     1. Send the conversation and the tool descriptions to Claude.
@@ -103,13 +101,10 @@ class Usage:
 class Agent:
     index: SearchIndex
     client: anthropic.Anthropic
+    user: str  # who is chatting; recorded on links they add
+    add_document: Callable[[Document], int]  # saves a document added with add_link
     messages: list = field(default_factory=list)  # the whole conversation so far
-    user: str = "me"  # who is chatting; recorded on links they add
-    verbose: bool = True  # print each tool call, so you can watch the agent work
     tool_calls: list[str] = field(default_factory=list)  # tools used for the latest question
-    # How add_link stores a new document. The web app passes a function that
-    # also saves it to the database; by default it only goes into the index.
-    add_document: Callable[[Document], int] | None = None
 
     # ---- the tools ---------------------------------------------------
     def search_library(self, query: str) -> str:
@@ -161,7 +156,7 @@ class Agent:
         except (LoadError, UnsupportedFileError) as e:
             return f"Couldn't add the link: {e}"
         try:
-            chunks = self.add_document(doc) if self.add_document else self.index.add(doc)
+            chunks = self.add_document(doc)
         except Exception as e:  # e.g. someone else added the same link a moment ago
             return f"Couldn't add the link: {e}"
         first_line = doc.text.strip().splitlines()[0][:100]
@@ -171,8 +166,6 @@ class Agent:
         """Run one tool. Returns (result text, is_error)."""
         args = ", ".join(f"{k}={v!r}" for k, v in tool_input.items())
         self.tool_calls.append(f"{name}({args})")
-        if self.verbose:
-            print(f"  > {name}({args})")
         try:
             if name == "search_library":
                 return self.search_library(str(tool_input["query"])), False
@@ -258,7 +251,3 @@ class Agent:
         })
         # The note above keeps the conversation valid, so this counts as complete.
         return "I couldn't finish: the agent used too many tool calls. Try a more specific question.", usage, True
-
-    def reset(self) -> None:
-        """Forget the conversation and start fresh."""
-        self.messages.clear()

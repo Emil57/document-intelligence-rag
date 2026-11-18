@@ -9,7 +9,7 @@ from document_intelligence_rag.search import SearchIndex
 def make_agent(client: FakeClient) -> Agent:
     index = SearchIndex()
     index.add(Document(text="The office opens at 9am.", source="hours.txt", kind="text", added_by="tester"))
-    return Agent(index=index, client=client, verbose=False)
+    return Agent(index=index, client=client, user="tester", add_document=index.add)
 
 
 def test_agent_runs_tools_then_answers():

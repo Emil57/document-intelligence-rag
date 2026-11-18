@@ -7,12 +7,10 @@ BM25 scores a chunk higher when:
 and it doesn't let long chunks win just because they are long.
 """
 
-import json
 import math
 import re
 from collections import Counter
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from dataclasses import dataclass
 
 from document_intelligence_rag.chunking import Chunk, chunk_document
 from document_intelligence_rag.loaders import Document
@@ -74,27 +72,6 @@ class SearchIndex:
         for doc in remaining:
             self.add(doc)
         return True
-
-    # ---- saving to disk ----------------------------------------------
-    # We save only the documents' text. Chunks and word counts are quick
-    # to rebuild, and image descriptions are already text, so loading
-    # never calls Claude again.
-    def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"documents": [asdict(doc) for doc in self.documents.values()]}
-        # Write to a temporary file first, so a crash can't leave a half-written library.
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(path)
-
-    @classmethod
-    def load(cls, path: Path) -> "SearchIndex":
-        index = cls()
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            for doc in data["documents"]:
-                index.add(Document(**doc))
-        return index
 
     def search(self, question: str, limit: int = 5) -> list[SearchResult]:
         """Return the best-matching chunks, best first."""

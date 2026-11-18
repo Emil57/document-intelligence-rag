@@ -322,7 +322,6 @@ def chat(library_id: int, body: ChatRequest, user: User) -> dict:
             index=store.get_index(library_id),
             client=client,
             user=user["username"],
-            verbose=False,
             add_document=lambda doc: store.add_document(library_id, doc),
         )
         conversation = Conversation(user_id=user["id"], library_id=library_id, agent=agent)

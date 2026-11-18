@@ -1,8 +1,7 @@
 """Loaders: turn files, images and web links into plain text.
 
 Each kind of source stores text differently, so each gets its own reader.
-`load_source` decides whether it's a link or a file, and `load_file` picks
-a reader by file extension. Every reader returns plain text wrapped in the
+`load_file` picks a reader by file extension, and `load_url` downloads links. Every reader returns plain text wrapped in the
 same `Document` record, so the rest of the app doesn't care where it came from.
 """
 
@@ -49,13 +48,6 @@ class LoadError(Exception):
 
 def is_url(value: str) -> bool:
     return value.startswith(("http://", "https://"))
-
-
-def load_source(source: str, added_by: str, client: anthropic.Anthropic | None = None) -> Document:
-    """Load a web link or a file path."""
-    if is_url(source):
-        return load_url(source, added_by)
-    return load_file(source, added_by, client)
 
 
 # ---- files -----------------------------------------------------------
