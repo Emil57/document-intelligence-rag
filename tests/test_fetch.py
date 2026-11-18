@@ -15,6 +15,7 @@ from document_intelligence_rag.loaders import LoadError, load_url
 
 FAKE_DNS = {
     "public.test": ["93.184.215.14"],
+    "site.test": ["127.0.0.1"],  # the local test website, see `site`
     "intranet.test": ["10.0.0.5"],
     "localhost": ["127.0.0.1", "::1"],
     # Some names point to several addresses; one private one is enough to refuse.
@@ -102,6 +103,8 @@ class Handler(BaseHTTPRequestHandler):
             self.redirect("http://169.254.169.254/latest/meta-data/")
         elif self.path == "/to-intranet":
             self.redirect("http://intranet.test/")
+        elif self.path == "/host":
+            self.reply(200, self.headers["Host"].encode(), "text/plain")
         elif self.path == "/loop":
             self.redirect("/loop")
         else:
@@ -175,3 +178,31 @@ def test_endless_redirects_stop(site):
 def test_missing_page_gives_an_error(site):
     with pytest.raises(fetch.FetchError, match="404"):
         fetch.fetch(f"{site}/nothing-here")
+
+
+def test_download_connects_to_the_checked_address(site):
+    # Only our fake lookup knows site.test, so this works only if the download
+    # uses the address we checked instead of looking the name up again.
+    port = site.rsplit(":", 1)[1]
+    download = fetch.fetch(f"http://site.test:{port}/host")
+    # The website is still told which site we asked for.
+    assert download.text == f"site.test:{port}"
+
+
+def test_the_name_is_looked_up_once_per_address(site, monkeypatch):
+    """A name that changes its answer between lookups (DNS rebinding) can't trick us.
+
+    The first lookup gives the website; any later one would give a private
+    address. Since we connect to the first answer, the second never happens.
+    """
+    answers = [[ipaddress.ip_address("127.0.0.1")], [ipaddress.ip_address("10.0.0.5")]]
+    lookups = []
+
+    def changing_resolve(host, port):
+        lookups.append(host)
+        return answers[len(lookups) - 1]
+
+    monkeypatch.setattr(fetch, "resolve", changing_resolve)
+    port = site.rsplit(":", 1)[1]
+    assert "Public page" in fetch.fetch(f"http://rebind.test:{port}/page").text
+    assert lookups == ["rebind.test"]

@@ -98,15 +98,21 @@ def check_url(url: str) -> list[IPAddress]:
 def fetch(url: str) -> Download:
     """Download a link, but only from public internet addresses.
 
-    A public website can answer "go to http://127.0.0.1/ instead" (a redirect),
-    so we follow redirects ourselves and check every new address.
+    Two tricks are blocked here:
+    - Redirects: a public website can answer "go to http://127.0.0.1/ instead",
+      so we follow redirects ourselves and check every new address.
+    - DNS rebinding: a website name can point to a public address when we check
+      it and to a private one a moment later, when the download looks it up
+      again. So we connect to the exact address we checked.
     """
     current = url
     try:
-        with httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
+        # trust_env=False ignores proxy settings: a proxy would look the name
+        # up again by itself, undoing the check.
+        with httpx.Client(timeout=TIMEOUT, trust_env=False) as client:
             for _ in range(MAX_REDIRECTS + 1):
-                check_url(current)
-                response = client.get(current)  # follow_redirects is off by default
+                addresses = check_url(current)
+                response = _get_from(client, httpx.URL(current), addresses[0])
                 if not response.is_redirect:
                     response.raise_for_status()
                     return Download(
@@ -116,7 +122,22 @@ def fetch(url: str) -> Download:
                         encoding=response.encoding or "utf-8",
                     )
                 # The new address can be relative, like "/other-page".
-                current = str(response.url.join(response.headers["location"]))
+                current = str(httpx.URL(current).join(response.headers["location"]))
     except httpx.HTTPError as e:
         raise FetchError(f"Couldn't download {url}: {e}") from e
     raise FetchError(f"Couldn't download {url}: it redirects more than {MAX_REDIRECTS} times.")
+
+
+def _get_from(client: httpx.Client, url: httpx.URL, ip: IPAddress) -> httpx.Response:
+    """GET `url`, connecting to `ip` instead of looking the name up again.
+
+    The website still needs to know which site we want: the Host header says
+    so, and for HTTPS, `sni_hostname` makes the certificate check use the real
+    name too, so a site can't pretend to be another one.
+    """
+    extensions = {"sni_hostname": url.raw_host.decode("ascii")} if url.scheme == "https" else {}
+    return client.get(
+        url.copy_with(host=str(ip)),
+        headers={"Host": url.netloc.decode("ascii"), "User-Agent": USER_AGENT},
+        extensions=extensions,
+    )
