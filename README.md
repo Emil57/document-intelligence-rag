@@ -67,6 +67,15 @@ uv run src/document_intelligence_rag/experiments/chat.py
 Type questions; `add <file or link>` adds a source, `new` starts a fresh conversation,
 `quit` exits. Each tool the agent uses is printed, so you can watch it work.
 
+### Run the tests
+
+```bash
+uv run pytest
+```
+
+The tests use a fake Claude client, so they're free and need no API key. They cover chunking,
+search, the agent loop, and the web app's access rules (who can see and change what).
+
 ## How it works
 
 ```
