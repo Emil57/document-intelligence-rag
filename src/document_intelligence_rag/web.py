@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFi
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from document_intelligence_rag import auth, config, store
+from document_intelligence_rag import auth, config, spending, store
 from document_intelligence_rag.agent import Agent
 from document_intelligence_rag.loaders import (
     HTML_EXTENSIONS,
@@ -222,7 +222,12 @@ def upload_document(library_id: int, file: UploadFile, user: User) -> dict:
     temp_path.write_bytes(data)
 
     try:
-        doc = load_file(temp_path, added_by=user["username"], client=client)
+        doc = load_file(
+            temp_path,
+            added_by=user["username"],
+            client=client,
+            record_usage=lambda model, i, o: spending.record(user["id"], "image", model, i, o),
+        )
         if not doc.text.strip():
             raise LoadError(f"No text found in {name}. Is it a scanned PDF?")
         chunks = store.add_document(library_id, doc)
@@ -295,6 +300,8 @@ def chat(library_id: int, body: ChatRequest, user: User) -> dict:
             client=client,
             user=user["username"],
             add_document=lambda doc: store.add_document(library_id, doc),
+            # The person asking pays, even in a shared library.
+            record_usage=lambda model, i, o: spending.record(user["id"], "chat", model, i, o),
         )
         conversation = Conversation(user_id=user["id"], library_id=library_id, agent=agent)
         conversation_id = uuid.uuid4().hex

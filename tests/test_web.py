@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 
+from conftest import FakeClient, reply, text
 from document_intelligence_rag import config, store, web
 
 
@@ -92,3 +93,30 @@ def test_rejected_upload_keeps_the_existing_file(app_client):
     assert upload(ana, library_id, "a.txt", b"second version").status_code == 400
 
     assert (config.FILES_DIR / str(library_id) / "a.txt").read_bytes() == b"first version"
+
+
+def spent(username: str) -> float:
+    with store.connect() as db:
+        user_id = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()["id"]
+    return store.cost_since("", user_id)
+
+
+def test_the_person_asking_pays_for_the_question(app_client, monkeypatch):
+    ana = sign_up(app_client, "ana")
+    ben = sign_up(second_browser(), "ben")
+    library_id = ana.post("/api/libraries", json={"name": "Team"}).json()["id"]
+    ana.post(f"/api/libraries/{library_id}/members", json={"username": "ben"})
+
+    monkeypatch.setattr(web, "client", FakeClient(reply("end_turn", text("Hello!"))))
+    assert ben.post(f"/api/libraries/{library_id}/chat", json={"message": "hi"}).status_code == 200
+
+    assert spent("ben") > 0
+    assert spent("ana") == 0
+
+
+def test_image_descriptions_are_paid_by_the_uploader(app_client, monkeypatch):
+    ana = sign_up(app_client, "ana")
+    monkeypatch.setattr(web, "client", FakeClient(reply("end_turn", text("A photo of a cat."))))
+    response = upload(ana, personal_library(ana), "cat.png", b"not really a png")
+    assert response.status_code == 200, response.text
+    assert spent("ana") > 0

@@ -6,10 +6,17 @@ from document_intelligence_rag.loaders import Document
 from document_intelligence_rag.search import SearchIndex
 
 
-def make_agent(client: FakeClient) -> Agent:
+def make_agent(client: FakeClient, calls: list | None = None) -> Agent:
     index = SearchIndex()
     index.add(Document(text="The office opens at 9am.", source="hours.txt", kind="text", added_by="tester"))
-    return Agent(index=index, client=client, user="tester", add_document=index.add)
+    calls = [] if calls is None else calls
+    return Agent(
+        index=index,
+        client=client,
+        user="tester",
+        add_document=index.add,
+        record_usage=lambda model, i, o: calls.append((i, o)),
+    )
 
 
 def test_agent_runs_tools_then_answers():
@@ -66,3 +73,13 @@ def test_api_error_puts_the_conversation_back():
 def test_unknown_document_gives_a_helpful_message():
     agent = make_agent(FakeClient())
     assert "list_documents" in agent.read_document("missing.pdf")
+
+
+def test_every_claude_call_is_recorded_even_if_the_question_fails():
+    calls = []
+    client = FakeClient(
+        reply("tool_use", tool_use("list_documents", {})),
+        reply("refusal"),
+    )
+    make_agent(client, calls).ask("What's in the library?")
+    assert calls == [(10, 5), (10, 5)]

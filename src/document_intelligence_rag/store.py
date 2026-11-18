@@ -56,6 +56,17 @@ CREATE TABLE IF NOT EXISTS documents (
     added_at   TEXT NOT NULL,
     UNIQUE (library_id, source)
 );
+CREATE TABLE IF NOT EXISTS usage (
+    id            INTEGER PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind          TEXT NOT NULL CHECK (kind IN ('chat', 'image')),
+    model         TEXT NOT NULL,
+    input_tokens  INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd      REAL NOT NULL,
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_by_time ON usage (created_at, user_id);
 """
 
 
@@ -294,3 +305,25 @@ def remove_document(library_id: int, source: str) -> bool:
             return False
         index.remove(source)
         return True
+
+
+# ---- usage -----------------------------------------------------------------------
+def record_usage(user_id: int, kind: str, model: str, input_tokens: int, output_tokens: int,
+                 cost_usd: float) -> None:
+    with connect() as db:
+        db.execute(
+            """INSERT INTO usage (user_id, kind, model, input_tokens, output_tokens, cost_usd, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, kind, model, input_tokens, output_tokens, cost_usd, now()),
+        )
+
+
+def cost_since(since: str, user_id: int | None = None) -> float:
+    """Dollars spent since a time (as from now()), by one user or, with None, by everyone."""
+    query = "SELECT COALESCE(SUM(cost_usd), 0) FROM usage WHERE created_at >= ?"
+    params: tuple = (since,)
+    if user_id is not None:
+        query += " AND user_id = ?"
+        params += (user_id,)
+    with connect() as db:
+        return db.execute(query, params).fetchone()[0]

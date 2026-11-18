@@ -91,6 +91,7 @@ class Agent:
     client: anthropic.Anthropic
     user: str  # recorded on links they add
     add_document: Callable[[Document], int]  # saves links added with add_link
+    record_usage: Callable[[str, int, int], None]  # (model, input tokens, output tokens) of each call
     messages: list = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)  # for the latest question
 
@@ -201,6 +202,8 @@ class Agent:
             )
             usage.input_tokens += response.usage.input_tokens
             usage.output_tokens += response.usage.output_tokens
+            # Right away, so calls in a question that later fails are counted too.
+            self.record_usage(config.MODEL, response.usage.input_tokens, response.usage.output_tokens)
 
             if response.stop_reason == "refusal":
                 return "Claude declined to answer this question.", usage, False

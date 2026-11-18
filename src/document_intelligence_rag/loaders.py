@@ -2,6 +2,7 @@
 
 import base64
 import io
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,7 +47,11 @@ def is_url(value: str) -> bool:
 
 
 # ---- files -----------------------------------------------------------
-def load_file(path: str | Path, added_by: str, client: anthropic.Anthropic | None = None) -> Document:
+# Receives (model, input tokens, output tokens) of each Claude call.
+RecordUsage = Callable[[str, int, int], None]
+
+
+def load_file(path: str | Path, added_by: str, client: anthropic.Anthropic, record_usage: RecordUsage) -> Document:
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"No file at {path}")
@@ -61,7 +66,7 @@ def load_file(path: str | Path, added_by: str, client: anthropic.Anthropic | Non
     elif ext in TEXT_EXTENSIONS:
         kind, text = "text", read_text(path)
     elif ext in IMAGE_TYPES:
-        kind, text = "image", describe_image(path, client)
+        kind, text = "image", describe_image(path, client, record_usage)
     else:
         raise UnsupportedFileError(f"Can't read {ext or 'files without an extension'} yet")
 
@@ -103,13 +108,12 @@ Describe this image so it can be found by a text search later.
 Start with a one-line title for the image. Plain text only, no preamble."""
 
 
-def describe_image(path: Path, client: anthropic.Anthropic | None = None) -> str:
+def describe_image(path: Path, client: anthropic.Anthropic, record_usage: RecordUsage) -> str:
     """Have Claude describe an image, so its content becomes searchable text."""
     data = path.read_bytes()
     if len(data) > MAX_IMAGE_BYTES:
         raise LoadError(f"{path.name} is larger than 5 MB. Please resize it first.")
 
-    client = client or anthropic.Anthropic()
     response = client.messages.create(
         model=config.MODEL,
         max_tokens=2000,
@@ -128,6 +132,7 @@ def describe_image(path: Path, client: anthropic.Anthropic | None = None) -> str
             ],
         }],
     )
+    record_usage(config.MODEL, response.usage.input_tokens, response.usage.output_tokens)
     if response.stop_reason == "refusal":
         raise LoadError(f"Claude declined to describe {path.name}.")
     description = "".join(b.text for b in response.content if b.type == "text")
