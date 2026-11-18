@@ -167,3 +167,18 @@ def test_yesterdays_spending_doesnt_count(app_client, monkeypatch):
     assert spending.spent_today(1) == 0
     monkeypatch.setattr(web, "client", FakeClient(reply("end_turn", text("Hello!"))))
     assert ana.post(f"/api/libraries/{personal_library(ana)}/chat", json={"message": "hi"}).status_code == 200
+
+
+def test_everyone_stops_when_the_app_limit_is_reached(app_client, monkeypatch):
+    monkeypatch.setattr(config, "USER_DAILY_LIMIT_USD", 0.50)
+    monkeypatch.setattr(config, "APP_DAILY_LIMIT_USD", 1.00)
+    ana = sign_up(app_client, "ana")
+    sign_up(second_browser(), "ben")
+    sign_up(second_browser(), "cam")
+    spend("ben", 0.50)
+    spend("cam", 0.50)
+
+    # Ana hasn't spent anything, but the app as a whole is at its limit.
+    response = ana.post(f"/api/libraries/{personal_library(ana)}/chat", json={"message": "hi"})
+    assert response.status_code == 429
+    assert "app has reached" in response.json()["detail"]

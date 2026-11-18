@@ -41,12 +41,13 @@ def start_of_today() -> str:
     return datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
 
-def spent_today(user_id: int) -> float:
+def spent_today(user_id: int | None) -> float:
+    """By one user, or with None, by everyone."""
     return store.cost_since(start_of_today(), user_id)
 
 
 def check(user_id: int) -> None:
-    """Raise LimitReached if the user can't spend more today.
+    """Raise LimitReached if the user, or the app as a whole, can't spend more today.
 
     Two requests at the same moment can both pass, so a user can go slightly
     over. That's fine for protecting the budget.
@@ -55,3 +56,5 @@ def check(user_id: int) -> None:
         raise LimitReached(
             f"You've reached today's limit of ${config.USER_DAILY_LIMIT_USD:.2f}. It resets at midnight UTC."
         )
+    if spent_today(None) >= config.APP_DAILY_LIMIT_USD:
+        raise LimitReached("The app has reached its daily spending limit. Please try again after midnight UTC.")
