@@ -111,6 +111,7 @@ don't win just for being long. It needs no extra services, but it matches words,
 src/document_intelligence_rag/
 ├── config.py        settings: model, data folder, chunks per question
 ├── loaders.py       files, images and links → Document (plain text)
+├── fetch.py         safe link downloads: public addresses only, size and time limits
 ├── chunking.py      split documents into overlapping chunks
 ├── search.py        BM25 keyword search
 ├── rag.py           one-shot RAG: search once, then ask Claude (step 4)
@@ -161,8 +162,12 @@ Set a monthly spend limit at platform.claude.com to avoid surprises.
 - [x] 6. Web links and image descriptions
 - [x] 7. Web app with a saved library
 - [x] 8. Users and sharing: sign-in, private libraries, shared libraries for groups
-- [ ] 9. Going online: hosting with HTTPS, secure cookies, login rate limits, and protecting
-      `add_link` from reaching private network addresses
+- [ ] 9. Going online
+  - [x] Links can't reach private or internal network addresses
+  - [ ] Spending limits per user
+  - [ ] Login rate limits
+  - [ ] Production settings: secure cookies on HTTPS, one worker
+  - [ ] Hosting with HTTPS and a persistent disk, plus backups
 - [ ] Later: search by meaning (embeddings), audio/video transcription, answer-quality tests
 
 ## Known limitations
