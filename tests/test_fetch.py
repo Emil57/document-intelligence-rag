@@ -5,6 +5,8 @@ with a small table of made-up website names.
 """
 
 import ipaddress
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -85,3 +87,91 @@ def test_is_public():
     for private in ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.0.1", "169.254.169.254",
                     "100.64.0.1", "224.0.0.1", "::1", "fc00::1", "fe80::1", "::ffff:10.0.0.1"]:
         assert not fetch.is_public(ipaddress.ip_address(private)), private
+
+
+# ---- downloads from a real (local) web server -----------------------------------
+class Handler(BaseHTTPRequestHandler):
+    """A tiny website for the tests. Each path does one thing."""
+
+    def do_GET(self):
+        if self.path == "/page":
+            self.reply(200, b"<html><head><title>Hello</title></head><body><p>Public page</p></body></html>")
+        elif self.path == "/to-page":
+            self.redirect("/page")
+        elif self.path == "/to-metadata":
+            self.redirect("http://169.254.169.254/latest/meta-data/")
+        elif self.path == "/to-intranet":
+            self.redirect("http://intranet.test/")
+        elif self.path == "/loop":
+            self.redirect("/loop")
+        else:
+            self.reply(404, b"not found")
+
+    def reply(self, status, body, content_type="text/html; charset=utf-8"):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def redirect(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *args):  # keep test output quiet
+        pass
+
+
+@pytest.fixture
+def site(fake_dns, monkeypatch):
+    """Start the test website on this machine and return its address.
+
+    The website runs on 127.0.0.1, which the app normally refuses. For these
+    tests, 127.0.0.1 stands in for a public website; everything else is checked
+    as usual.
+    """
+    real_is_public = fetch.is_public
+    monkeypatch.setattr(fetch, "is_public", lambda ip: str(ip) == "127.0.0.1" or real_is_public(ip))
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+def test_download_a_public_page(site):
+    download = fetch.fetch(f"{site}/page")
+    assert "Public page" in download.text
+    assert download.content_type.startswith("text/html")
+
+
+def test_load_url_keeps_the_page_text(site):
+    doc = load_url(f"{site}/page", added_by="tester")
+    assert doc.text.startswith("Hello")  # the page title comes first
+    assert "Public page" in doc.text
+
+
+def test_redirects_to_public_pages_are_followed(site):
+    download = fetch.fetch(f"{site}/to-page")
+    assert download.url == f"{site}/page"
+    assert "Public page" in download.text
+
+
+@pytest.mark.parametrize("path", ["/to-metadata", "/to-intranet"])
+def test_redirects_to_private_addresses_are_refused(site, path):
+    with pytest.raises(fetch.UnsafeLinkError):
+        fetch.fetch(f"{site}{path}")
+
+
+def test_endless_redirects_stop(site):
+    with pytest.raises(fetch.FetchError, match="redirects more than"):
+        fetch.fetch(f"{site}/loop")
+
+
+def test_missing_page_gives_an_error(site):
+    with pytest.raises(fetch.FetchError, match="404"):
+        fetch.fetch(f"{site}/nothing-here")

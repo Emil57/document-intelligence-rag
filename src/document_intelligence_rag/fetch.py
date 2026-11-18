@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import httpx
 
 TIMEOUT = 20  # seconds
+MAX_REDIRECTS = 5
 # Sites like Wikipedia block downloads from unnamed programs. Naming the app
 # and linking the project is the polite, expected way to identify ourselves.
 USER_AGENT = "document-intelligence-rag/0.1 (https://github.com/Emil57/document-intelligence-rag)"
@@ -95,16 +96,27 @@ def check_url(url: str) -> list[IPAddress]:
 
 # ---- downloading ---------------------------------------------------------------
 def fetch(url: str) -> Download:
-    """Download a link, but only from public internet addresses."""
-    check_url(url)
+    """Download a link, but only from public internet addresses.
+
+    A public website can answer "go to http://127.0.0.1/ instead" (a redirect),
+    so we follow redirects ourselves and check every new address.
+    """
+    current = url
     try:
-        response = httpx.get(url, follow_redirects=True, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
-        response.raise_for_status()
+        with httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
+            for _ in range(MAX_REDIRECTS + 1):
+                check_url(current)
+                response = client.get(current)  # follow_redirects is off by default
+                if not response.is_redirect:
+                    response.raise_for_status()
+                    return Download(
+                        url=current,
+                        content_type=response.headers.get("content-type", "").lower(),
+                        content=response.content,
+                        encoding=response.encoding or "utf-8",
+                    )
+                # The new address can be relative, like "/other-page".
+                current = str(response.url.join(response.headers["location"]))
     except httpx.HTTPError as e:
         raise FetchError(f"Couldn't download {url}: {e}") from e
-    return Download(
-        url=str(response.url),
-        content_type=response.headers.get("content-type", "").lower(),
-        content=response.content,
-        encoding=response.encoding or "utf-8",
-    )
+    raise FetchError(f"Couldn't download {url}: it redirects more than {MAX_REDIRECTS} times.")
