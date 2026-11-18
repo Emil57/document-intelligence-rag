@@ -13,11 +13,11 @@ from pathlib import Path
 
 import anthropic
 import docx
-import httpx
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
 
 from document_intelligence_rag import config
+from document_intelligence_rag.fetch import FetchError, fetch
 
 TEXT_EXTENSIONS = {".txt", ".md", ".csv", ".json"}
 HTML_EXTENSIONS = {".html", ".htm"}
@@ -29,10 +29,6 @@ IMAGE_TYPES = {
     ".webp": "image/webp",
 }
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # the API accepts images up to 5 MB
-
-# Sites like Wikipedia block downloads from unnamed programs. Naming the app
-# and linking the project is the polite, expected way to identify ourselves.
-USER_AGENT = "document-intelligence-rag/0.1 (https://github.com/Emil57/document-intelligence-rag)"
 
 
 @dataclass
@@ -169,27 +165,21 @@ def html_to_text(html: str) -> str:
 def load_url(url: str, added_by: str) -> Document:
     """Download a web page (or a PDF/text file at a link) and keep its text."""
     try:
-        response = httpx.get(
-            url,
-            follow_redirects=True,
-            timeout=20,
-            headers={"User-Agent": USER_AGENT},
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as e:
-        raise LoadError(f"Couldn't download {url}: {e}") from e
+        download = fetch(url)  # refuses private and internal addresses
+    except FetchError as e:
+        raise LoadError(str(e)) from e
 
-    content_type = response.headers.get("content-type", "").lower()
+    content_type = download.content_type
     if "application/pdf" in content_type:
-        text = read_pdf(response.content)
+        text = read_pdf(download.content)
     elif "html" in content_type:
-        soup = BeautifulSoup(response.text, "html.parser")
+        soup = BeautifulSoup(download.text, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else ""
-        body = html_to_text(response.text)
+        body = html_to_text(download.text)
         # Put the page title first: list_documents shows the first line.
         text = f"{title}\n\n{body}" if title else body
     elif content_type.startswith("text/") or "json" in content_type:
-        text = response.text
+        text = download.text
     else:
         raise UnsupportedFileError(f"Can't read {content_type or 'this kind of link'} yet")
 
