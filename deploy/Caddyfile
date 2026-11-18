@@ -1,0 +1,5 @@
+# Caddy gets and renews an HTTPS certificate for this domain by itself.
+{$DOCINTEL_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8000
+}

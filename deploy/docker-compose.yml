@@ -1,0 +1,35 @@
+# Runs on the server, in ~/app, next to Caddyfile and .env (see docs/deploy-aws.md).
+# The deploy workflow sets APP_IMAGE to the image it just built.
+services:
+  app:
+    image: ${APP_IMAGE:-ghcr.io/emil57/document-intelligence-rag:latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DOCINTEL_DATA_DIR: /data
+      DOCINTEL_SECURE_COOKIES: "true"
+    volumes:
+      - appdata:/data
+    # No published ports: only Caddy can reach the app, so only Caddy's
+    # forwarded headers are trusted.
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOCINTEL_DOMAIN: ${DOCINTEL_DOMAIN:?Set DOCINTEL_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data  # HTTPS certificates
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  appdata:
+  caddy_data:
+  caddy_config:
