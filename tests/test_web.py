@@ -197,3 +197,9 @@ def test_the_page_gets_todays_spending(app_client, monkeypatch):
 
 def test_health_check_needs_no_login(app_client):
     assert app_client.get("/health").json() == {"ok": True}
+
+
+def test_cookies_can_be_limited_to_https(app_client, monkeypatch):
+    monkeypatch.setattr(config, "SECURE_COOKIES", True)
+    response = app_client.post("/api/signup", json={"username": "ana", "password": "password123"})
+    assert "secure" in response.headers["set-cookie"].lower()

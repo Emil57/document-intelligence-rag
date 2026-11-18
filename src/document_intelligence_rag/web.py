@@ -90,7 +90,7 @@ def start_session(response: Response, user_id: int) -> None:
         max_age=store.SESSION_DAYS * 24 * 3600,
         httponly=True,  # injected scripts can't read it
         samesite="lax",  # other websites can't send requests with it
-        secure=False,  # TODO step 9: True once the app runs on HTTPS
+        secure=config.SECURE_COOKIES,  # so the cookie never travels unencrypted
     )
 
 
