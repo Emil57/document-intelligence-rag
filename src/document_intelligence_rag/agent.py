@@ -188,7 +188,25 @@ class Agent:
 
     # ---- the agent loop ----------------------------------------------
     def ask(self, question: str) -> tuple[str, Usage]:
-        """Answer one question, using tools as needed. Remembers earlier questions."""
+        """Answer one question, using tools as needed. Remembers earlier questions.
+
+        If the question can't be answered (refused, cut off, or an API error),
+        the conversation goes back to how it was before the question. Otherwise
+        the failed question would be sent again with every later question,
+        and the chat could keep failing.
+        """
+        start = len(self.messages)
+        try:
+            text, usage, complete = self._ask(question)
+        except Exception:
+            del self.messages[start:]
+            raise
+        if not complete:
+            del self.messages[start:]
+        return text, usage
+
+    def _ask(self, question: str) -> tuple[str, Usage, bool]:
+        """The agent loop. Returns (answer, usage, whether the answer is complete)."""
         self.messages.append({"role": "user", "content": question})
         self.tool_calls = []
         usage = Usage()
@@ -204,11 +222,11 @@ class Agent:
             usage.input_tokens += response.usage.input_tokens
             usage.output_tokens += response.usage.output_tokens
 
-            # A refused or cut-off reply is incomplete, so we leave it out of the conversation.
+            # A refused or cut-off reply is incomplete, so ask() removes it from the conversation.
             if response.stop_reason == "refusal":
-                return "Claude declined to answer this question.", usage
+                return "Claude declined to answer this question.", usage, False
             if response.stop_reason == "max_tokens":
-                return "The answer was too long and got cut off. Try a narrower question.", usage
+                return "The answer was too long and got cut off. Try a narrower question.", usage, False
 
             # Keep Claude's full reply (text, thinking and tool calls) in the conversation.
             self.messages.append({"role": "assistant", "content": response.content})
@@ -216,7 +234,7 @@ class Agent:
             if response.stop_reason != "tool_use":
                 # end_turn: Claude has written its answer.
                 text = "".join(b.text for b in response.content if b.type == "text")
-                return text, usage
+                return text, usage, True
 
             # Claude asked for one or more tools. Run them all and send back
             # all results together in one message.
@@ -238,7 +256,8 @@ class Agent:
             "role": "assistant",
             "content": "I stopped searching because I hit the tool limit.",
         })
-        return "I couldn't finish: the agent used too many tool calls. Try a more specific question.", usage
+        # The note above keeps the conversation valid, so this counts as complete.
+        return "I couldn't finish: the agent used too many tool calls. Try a more specific question.", usage, True
 
     def reset(self) -> None:
         """Forget the conversation and start fresh."""
