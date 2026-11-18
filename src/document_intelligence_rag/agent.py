@@ -92,6 +92,7 @@ class Agent:
     user: str  # recorded on links they add
     add_document: Callable[[Document], int]  # saves links added with add_link
     record_usage: Callable[[str, int, int], None]  # (model, input tokens, output tokens) of each call
+    check_budget: Callable[[], None]  # raises if the user can't spend more
     messages: list = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)  # for the latest question
 
@@ -193,6 +194,8 @@ class Agent:
         usage = Usage()
 
         for _ in range(MAX_TOOL_ROUNDS):
+            # Before every call, so one long question can't run far past the limit.
+            self.check_budget()
             response = self.client.messages.create(
                 model=config.MODEL,
                 max_tokens=4000,

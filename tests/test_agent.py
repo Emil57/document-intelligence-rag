@@ -6,7 +6,7 @@ from document_intelligence_rag.loaders import Document
 from document_intelligence_rag.search import SearchIndex
 
 
-def make_agent(client: FakeClient, calls: list | None = None) -> Agent:
+def make_agent(client: FakeClient, calls: list | None = None, check_budget=lambda: None) -> Agent:
     index = SearchIndex()
     index.add(Document(text="The office opens at 9am.", source="hours.txt", kind="text", added_by="tester"))
     calls = [] if calls is None else calls
@@ -16,6 +16,7 @@ def make_agent(client: FakeClient, calls: list | None = None) -> Agent:
         user="tester",
         add_document=index.add,
         record_usage=lambda model, i, o: calls.append((i, o)),
+        check_budget=check_budget,
     )
 
 
@@ -83,3 +84,22 @@ def test_every_claude_call_is_recorded_even_if_the_question_fails():
     )
     make_agent(client, calls).ask("What's in the library?")
     assert calls == [(10, 5), (10, 5)]
+
+
+def test_agent_stops_between_rounds_when_the_budget_runs_out():
+    class OutOfBudget(Exception):
+        pass
+
+    checks = []
+
+    def check_budget():
+        checks.append(1)
+        if len(checks) > 1:  # fine for the first call, used up after it
+            raise OutOfBudget
+
+    client = FakeClient(reply("tool_use", tool_use("list_documents", {})), reply("end_turn", text("Done.")))
+    agent = make_agent(client, check_budget=check_budget)
+    with pytest.raises(OutOfBudget):
+        agent.ask("What's in the library?")
+    assert len(client.requests) == 1  # the second call never happened
+    assert agent.messages == []

@@ -1,6 +1,8 @@
-"""What Claude calls cost, and who pays for them."""
+"""What Claude calls cost, who pays for them, and daily limits."""
 
-from document_intelligence_rag import store
+from datetime import UTC, datetime
+
+from document_intelligence_rag import config, store
 
 # Dollars per million tokens: (input, output), from platform.claude.com/pricing.
 PRICES = {
@@ -28,3 +30,28 @@ def record(user_id: int, kind: str, model: str, input_tokens: int, output_tokens
     """Save one Claude call. `kind` is "chat" or "image"."""
     store.record_usage(user_id, kind, model, input_tokens, output_tokens,
                        cost_usd(model, input_tokens, output_tokens))
+
+
+class LimitReached(Exception):
+    """Today's spending limit is used up."""
+
+
+def start_of_today() -> str:
+    """Midnight UTC, in the same format as the stored times."""
+    return datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def spent_today(user_id: int) -> float:
+    return store.cost_since(start_of_today(), user_id)
+
+
+def check(user_id: int) -> None:
+    """Raise LimitReached if the user can't spend more today.
+
+    Two requests at the same moment can both pass, so a user can go slightly
+    over. That's fine for protecting the budget.
+    """
+    if spent_today(user_id) >= config.USER_DAILY_LIMIT_USD:
+        raise LimitReached(
+            f"You've reached today's limit of ${config.USER_DAILY_LIMIT_USD:.2f}. It resets at midnight UTC."
+        )

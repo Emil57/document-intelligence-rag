@@ -16,5 +16,8 @@ DATA_DIR = Path(os.getenv("DOCINTEL_DATA_DIR", "data"))
 FILES_DIR = DATA_DIR / "files"  # one folder per library
 DB_PATH = DATA_DIR / "app.db"
 
+# Daily spending limit per user, in dollars. Days start at midnight UTC.
+USER_DAILY_LIMIT_USD = float(os.getenv("DOCINTEL_USER_DAILY_LIMIT_USD", "0.50"))
+
 # Required to sign up, if set, so strangers can't create accounts and spend API credits.
 SIGNUP_CODE = os.getenv("DOCINTEL_SIGNUP_CODE") or None

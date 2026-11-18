@@ -76,6 +76,13 @@ def require_owner(library_id: int, user: sqlite3.Row) -> None:
         raise HTTPException(403, "Only the library's owner can do that.")
 
 
+def check_spending(user: sqlite3.Row) -> None:
+    try:
+        spending.check(user["id"])
+    except spending.LimitReached as e:
+        raise HTTPException(429, str(e)) from e
+
+
 def start_session(response: Response, user_id: int) -> None:
     response.set_cookie(
         SESSION_COOKIE,
@@ -205,6 +212,8 @@ def upload_document(library_id: int, file: UploadFile, user: User) -> dict:
     ext = Path(name).suffix.lower()
     if not name or ext not in SUPPORTED_EXTENSIONS:
         raise HTTPException(400, f"Can't read {ext or 'this kind of'} files yet.")
+    if ext in IMAGE_TYPES:  # only images cost money: Claude describes them
+        check_spending(user)
     if name in store.get_index(library_id).documents:
         raise HTTPException(409, f"{name} is already in this library.")
 
@@ -302,6 +311,7 @@ def chat(library_id: int, body: ChatRequest, user: User) -> dict:
             add_document=lambda doc: store.add_document(library_id, doc),
             # The person asking pays, even in a shared library.
             record_usage=lambda model, i, o: spending.record(user["id"], "chat", model, i, o),
+            check_budget=lambda: spending.check(user["id"]),
         )
         conversation = Conversation(user_id=user["id"], library_id=library_id, agent=agent)
         conversation_id = uuid.uuid4().hex
@@ -311,6 +321,8 @@ def chat(library_id: int, body: ChatRequest, user: User) -> dict:
 
     try:
         answer, usage = conversation.agent.ask(message)
+    except spending.LimitReached as e:
+        raise HTTPException(429, str(e)) from e
     except anthropic.APIConnectionError:
         raise HTTPException(502, "Couldn't reach the Claude API. Check the internet connection.")
     except anthropic.APIStatusError as e:

@@ -3,7 +3,7 @@
 from fastapi.testclient import TestClient
 
 from conftest import FakeClient, reply, text
-from document_intelligence_rag import config, store, web
+from document_intelligence_rag import config, spending, store, web
 
 
 def sign_up(client: TestClient, username: str) -> TestClient:
@@ -120,3 +120,50 @@ def test_image_descriptions_are_paid_by_the_uploader(app_client, monkeypatch):
     response = upload(ana, personal_library(ana), "cat.png", b"not really a png")
     assert response.status_code == 200, response.text
     assert spent("ana") > 0
+
+
+def spend(username: str, dollars: float, when: str | None = None) -> None:
+    """Pretend the user already spent this much (today, unless `when` is given)."""
+    with store.connect() as db:
+        user_id = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()["id"]
+        db.execute(
+            """INSERT INTO usage (user_id, kind, model, input_tokens, output_tokens, cost_usd, created_at)
+               VALUES (?, 'chat', 'claude-haiku-5-5', 0, 0, ?, ?)""",
+            (user_id, dollars, when or store.now()),
+        )
+
+
+def test_users_over_their_daily_limit_are_stopped(app_client, monkeypatch):
+    monkeypatch.setattr(config, "USER_DAILY_LIMIT_USD", 0.50)
+    ana = sign_up(app_client, "ana")
+    library_id = personal_library(ana)
+    spend("ana", 0.50)
+
+    fake = FakeClient(reply("end_turn", text("Hello!")))
+    monkeypatch.setattr(web, "client", fake)
+    response = ana.post(f"/api/libraries/{library_id}/chat", json={"message": "hi"})
+    assert response.status_code == 429
+    assert "today's limit" in response.json()["detail"]
+    assert upload(ana, library_id, "cat.png", b"png").status_code == 429
+    assert fake.requests == []  # Claude was never called
+
+    # Free uploads still work.
+    assert upload(ana, library_id, "notes.txt", b"notes").status_code == 200
+
+
+def test_the_limit_is_per_user(app_client, monkeypatch):
+    monkeypatch.setattr(config, "USER_DAILY_LIMIT_USD", 0.50)
+    sign_up(app_client, "ana")
+    ben = sign_up(second_browser(), "ben")
+    spend("ana", 0.50)
+    monkeypatch.setattr(web, "client", FakeClient(reply("end_turn", text("Hello!"))))
+    assert ben.post(f"/api/libraries/{personal_library(ben)}/chat", json={"message": "hi"}).status_code == 200
+
+
+def test_yesterdays_spending_doesnt_count(app_client, monkeypatch):
+    monkeypatch.setattr(config, "USER_DAILY_LIMIT_USD", 0.50)
+    ana = sign_up(app_client, "ana")
+    spend("ana", 5.00, when="2000-01-01T12:00:00+00:00")
+    assert spending.spent_today(1) == 0
+    monkeypatch.setattr(web, "client", FakeClient(reply("end_turn", text("Hello!"))))
+    assert ana.post(f"/api/libraries/{personal_library(ana)}/chat", json={"message": "hi"}).status_code == 200
