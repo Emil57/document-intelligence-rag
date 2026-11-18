@@ -21,6 +21,7 @@ Every /api/libraries/{id}/... request first checks that the logged-in user
 is a member of that library.
 """
 
+import shutil
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -238,24 +239,31 @@ def upload_document(library_id: int, file: UploadFile, user: User) -> dict:
         raise HTTPException(413, "That file is larger than 20 MB.")
 
     folder = config.FILES_DIR / str(library_id)  # each library has its own folder
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / name
-    path.write_bytes(data)
+    # Save the upload in its own temporary folder first, and move it into the
+    # library only once the database has accepted it. Otherwise two uploads with
+    # the same name at the same moment would write to the same file, and the
+    # one that fails would delete the file of the one that succeeded.
+    # The temporary folder keeps the real file name, because the loaders use it.
+    upload_dir = config.FILES_DIR / "uploading" / uuid.uuid4().hex
+    upload_dir.mkdir(parents=True)
+    temp_path = upload_dir / name
+    temp_path.write_bytes(data)
 
     try:
-        doc = load_file(path, added_by=user["username"], client=client)
+        doc = load_file(temp_path, added_by=user["username"], client=client)
         if not doc.text.strip():
             raise LoadError(f"No text found in {name}. Is it a scanned PDF?")
         chunks = store.add_document(library_id, doc)
+        folder.mkdir(parents=True, exist_ok=True)
+        temp_path.replace(folder / name)
     except (UnsupportedFileError, LoadError, StoreError) as e:
-        path.unlink(missing_ok=True)
         raise HTTPException(400, str(e))
     except anthropic.APIError as e:
-        path.unlink(missing_ok=True)
         raise HTTPException(502, f"Claude couldn't describe the image: {e}")
     except Exception as e:  # e.g. a damaged PDF
-        path.unlink(missing_ok=True)
         raise HTTPException(400, f"Couldn't read {name}: {e}")
+    finally:
+        shutil.rmtree(upload_dir, ignore_errors=True)
     return {**describe(doc), "chunks": chunks}
 
 
