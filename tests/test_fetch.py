@@ -154,6 +154,11 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+class QuietServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        pass  # some tests stop downloads early, which breaks the connection on purpose
+
+
 @pytest.fixture
 def site(fake_dns, monkeypatch):
     """Start the test website on this machine and return its address.
@@ -165,7 +170,7 @@ def site(fake_dns, monkeypatch):
     real_is_public = fetch.is_public
     monkeypatch.setattr(fetch, "is_public", lambda ip: str(ip) == "127.0.0.1" or real_is_public(ip))
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = QuietServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{server.server_address[1]}"
