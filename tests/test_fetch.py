@@ -4,8 +4,10 @@ The tests never use the real internet. `fake_dns` replaces the address lookup
 with a small table of made-up website names.
 """
 
+import gzip
 import ipaddress
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -105,6 +107,20 @@ class Handler(BaseHTTPRequestHandler):
             self.redirect("http://intranet.test/")
         elif self.path == "/host":
             self.reply(200, self.headers["Host"].encode(), "text/plain")
+        elif self.path == "/big":
+            self.reply(200, b"x" * 5000, "text/plain")
+        elif self.path == "/big-no-size":
+            self.stream([b"x" * 1000] * 5)
+        elif self.path == "/zip-bomb":
+            body = gzip.compress(b"x" * 50_000)  # small to send, big once unzipped
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/slow":
+            self.stream([b"x"] * 20, pause=0.1)
         elif self.path == "/loop":
             self.redirect("/loop")
         else:
@@ -116,6 +132,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def stream(self, pieces, pause=0.0):
+        """Send the body piece by piece, without saying its size first."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        for piece in pieces:
+            self.wfile.write(piece)
+            self.wfile.flush()
+            time.sleep(pause)
+        self.close_connection = True
 
     def redirect(self, location):
         self.send_response(302)
@@ -206,3 +233,16 @@ def test_the_name_is_looked_up_once_per_address(site, monkeypatch):
     port = site.rsplit(":", 1)[1]
     assert "Public page" in fetch.fetch(f"http://rebind.test:{port}/page").text
     assert lookups == ["rebind.test"]
+
+
+@pytest.mark.parametrize("path", ["/big", "/big-no-size", "/zip-bomb"])
+def test_downloads_that_are_too_big_are_stopped(site, monkeypatch, path):
+    monkeypatch.setattr(fetch, "MAX_DOWNLOAD_BYTES", 1000)
+    with pytest.raises(fetch.FetchError, match="larger than"):
+        fetch.fetch(f"{site}{path}")
+
+
+def test_downloads_that_are_too_slow_are_stopped(site, monkeypatch):
+    monkeypatch.setattr(fetch, "MAX_SECONDS", 0.5)
+    with pytest.raises(fetch.FetchError, match="took too long"):
+        fetch.fetch(f"{site}/slow")

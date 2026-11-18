@@ -14,12 +14,15 @@ download goes through here, and we only connect to public internet addresses.
 
 import ipaddress
 import socket
+import time
 from dataclasses import dataclass
 
 import httpx
 
-TIMEOUT = 20  # seconds
+TIMEOUT = 20  # seconds to wait for each step (connecting, each piece of data)
+MAX_SECONDS = 60  # for the whole download, redirects included
 MAX_REDIRECTS = 5
+MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MB, after unzipping
 # Sites like Wikipedia block downloads from unnamed programs. Naming the app
 # and linking the project is the polite, expected way to identify ourselves.
 USER_AGENT = "document-intelligence-rag/0.1 (https://github.com/Emil57/document-intelligence-rag)"
@@ -104,40 +107,70 @@ def fetch(url: str) -> Download:
     - DNS rebinding: a website name can point to a public address when we check
       it and to a private one a moment later, when the download looks it up
       again. So we connect to the exact address we checked.
+
+    It also stops downloads that are too big or too slow, so nobody can tie up
+    the server with a huge file or a website that sends one byte at a time.
     """
     current = url
+    deadline = time.monotonic() + MAX_SECONDS
     try:
         # trust_env=False ignores proxy settings: a proxy would look the name
         # up again by itself, undoing the check.
         with httpx.Client(timeout=TIMEOUT, trust_env=False) as client:
             for _ in range(MAX_REDIRECTS + 1):
                 addresses = check_url(current)
-                response = _get_from(client, httpx.URL(current), addresses[0])
-                if not response.is_redirect:
-                    response.raise_for_status()
-                    return Download(
-                        url=current,
-                        content_type=response.headers.get("content-type", "").lower(),
-                        content=response.content,
-                        encoding=response.encoding or "utf-8",
-                    )
-                # The new address can be relative, like "/other-page".
-                current = str(httpx.URL(current).join(response.headers["location"]))
+                with _get_from(client, httpx.URL(current), addresses[0]) as response:
+                    if not response.is_redirect:
+                        response.raise_for_status()
+                        return Download(
+                            url=current,
+                            content_type=response.headers.get("content-type", "").lower(),
+                            content=_read_body(response, url, deadline),
+                            encoding=response.encoding or "utf-8",
+                        )
+                    # The new address can be relative, like "/other-page".
+                    current = str(httpx.URL(current).join(response.headers["location"]))
+                if time.monotonic() > deadline:
+                    raise FetchError(f"Couldn't download {url}: it took too long.")
     except httpx.HTTPError as e:
         raise FetchError(f"Couldn't download {url}: {e}") from e
     raise FetchError(f"Couldn't download {url}: it redirects more than {MAX_REDIRECTS} times.")
 
 
-def _get_from(client: httpx.Client, url: httpx.URL, ip: IPAddress) -> httpx.Response:
-    """GET `url`, connecting to `ip` instead of looking the name up again.
+def _get_from(client: httpx.Client, url: httpx.URL, ip: IPAddress):
+    """Start a GET of `url`, connecting to `ip` instead of looking the name up again.
+
+    Returns a "streaming" response: the body arrives piece by piece in
+    _read_body, so we can stop as soon as it gets too big.
 
     The website still needs to know which site we want: the Host header says
     so, and for HTTPS, `sni_hostname` makes the certificate check use the real
     name too, so a site can't pretend to be another one.
     """
     extensions = {"sni_hostname": url.raw_host.decode("ascii")} if url.scheme == "https" else {}
-    return client.get(
+    return client.stream(
+        "GET",
         url.copy_with(host=str(ip)),
         headers={"Host": url.netloc.decode("ascii"), "User-Agent": USER_AGENT},
         extensions=extensions,
     )
+
+
+def _read_body(response: httpx.Response, url: str, deadline: float) -> bytes:
+    """Read the body piece by piece, stopping if it gets too big or too slow."""
+    too_big = f"Couldn't download {url}: it's larger than {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB."
+    declared = response.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
+        raise FetchError(too_big)  # no need to start downloading
+
+    # Count what actually arrives too: the declared size can be missing or wrong.
+    # iter_bytes unzips compressed pages, so a small "zip bomb" is caught as well.
+    pieces, size = [], 0
+    for piece in response.iter_bytes():
+        size += len(piece)
+        if size > MAX_DOWNLOAD_BYTES:
+            raise FetchError(too_big)
+        if time.monotonic() > deadline:
+            raise FetchError(f"Couldn't download {url}: it took too long.")
+        pieces.append(piece)
+    return b"".join(pieces)
