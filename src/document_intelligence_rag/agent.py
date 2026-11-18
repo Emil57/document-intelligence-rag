@@ -1,15 +1,4 @@
-"""The agent: Claude with tools to explore your library, and memory of the conversation.
-
-Claude decides what to do. It can list the documents, search (again with
-other words if the first search finds nothing), or read a whole document,
-and it answers when it has enough information. The conversation is kept,
-so follow-up questions like "and who decided that?" work.
-
-The "agent loop":
-    1. Send the conversation and the tool descriptions to Claude.
-    2. If Claude asks to use tools, run them and send back the results. Go to 1.
-    3. If Claude answers, we're done.
-"""
+"""The agent: Claude with tools to explore one library, and memory of the conversation."""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -31,7 +20,6 @@ Image files are stored as AI-written descriptions; mention that when you answer 
 Cite the file each fact comes from in square brackets, like [meeting_notes.docx].
 If the library doesn't contain the answer, say so. Keep answers short."""
 
-# Tool descriptions: Claude reads these to decide which tool to use and how.
 TOOLS = [
     {
         "name": "search_library",
@@ -87,8 +75,8 @@ TOOLS = [
     },
 ]
 
-MAX_TOOL_ROUNDS = 8  # safety limit, so a confused agent can't loop (and spend) forever
-MAX_READ_CHARS = 40_000  # about 10,000 tokens: keeps one read_document call affordable
+MAX_TOOL_ROUNDS = 8  # so a confused agent can't loop (and spend) forever
+MAX_READ_CHARS = 40_000  # about 10,000 tokens, to keep one read_document call affordable
 
 
 @dataclass
@@ -101,10 +89,10 @@ class Usage:
 class Agent:
     index: SearchIndex
     client: anthropic.Anthropic
-    user: str  # who is chatting; recorded on links they add
-    add_document: Callable[[Document], int]  # saves a document added with add_link
-    messages: list = field(default_factory=list)  # the whole conversation so far
-    tool_calls: list[str] = field(default_factory=list)  # tools used for the latest question
+    user: str  # recorded on links they add
+    add_document: Callable[[Document], int]  # saves links added with add_link
+    messages: list = field(default_factory=list)
+    tool_calls: list[str] = field(default_factory=list)  # for the latest question
 
     # ---- the tools ---------------------------------------------------
     def search_library(self, query: str) -> str:
@@ -122,7 +110,7 @@ class Agent:
             return "The library is empty."
         lines = []
         for doc in self.index.documents.values():
-            # The first real line is often the title, which says more than the file name.
+            # Often the title, which says more than the file name.
             first_line = next(
                 (line.strip() for line in doc.text.splitlines()
                  if line.strip() and not line.startswith("[Page")),
@@ -181,12 +169,11 @@ class Agent:
 
     # ---- the agent loop ----------------------------------------------
     def ask(self, question: str) -> tuple[str, Usage]:
-        """Answer one question, using tools as needed. Remembers earlier questions.
+        """Answer one question, using tools as needed.
 
-        If the question can't be answered (refused, cut off, or an API error),
-        the conversation goes back to how it was before the question. Otherwise
-        the failed question would be sent again with every later question,
-        and the chat could keep failing.
+        If the answer is incomplete (refused, cut off, or an API error), the
+        conversation is restored. Otherwise the failed question would be sent
+        again with every later one, and the chat could keep failing.
         """
         start = len(self.messages)
         try:
@@ -199,7 +186,7 @@ class Agent:
         return text, usage
 
     def _ask(self, question: str) -> tuple[str, Usage, bool]:
-        """The agent loop. Returns (answer, usage, whether the answer is complete)."""
+        """Returns (answer, usage, whether the answer is complete)."""
         self.messages.append({"role": "user", "content": question})
         self.tool_calls = []
         usage = Usage()
@@ -215,22 +202,19 @@ class Agent:
             usage.input_tokens += response.usage.input_tokens
             usage.output_tokens += response.usage.output_tokens
 
-            # A refused or cut-off reply is incomplete, so ask() removes it from the conversation.
             if response.stop_reason == "refusal":
                 return "Claude declined to answer this question.", usage, False
             if response.stop_reason == "max_tokens":
                 return "The answer was too long and got cut off. Try a narrower question.", usage, False
 
-            # Keep Claude's full reply (text, thinking and tool calls) in the conversation.
+            # The full content, including thinking blocks, must be sent back unchanged.
             self.messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason != "tool_use":
-                # end_turn: Claude has written its answer.
                 text = "".join(b.text for b in response.content if b.type == "text")
                 return text, usage, True
 
-            # Claude asked for one or more tools. Run them all and send back
-            # all results together in one message.
+            # All results go back in one message, or Claude stops calling tools in parallel.
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
@@ -243,11 +227,9 @@ class Agent:
                     })
             self.messages.append({"role": "user", "content": tool_results})
 
-        # Too many rounds. The conversation ends on tool results, so add a note
-        # asking Claude to answer without more tools next time.
+        # The conversation ends on tool results; this note keeps it valid for the next question.
         self.messages.append({
             "role": "assistant",
             "content": "I stopped searching because I hit the tool limit.",
         })
-        # The note above keeps the conversation valid, so this counts as complete.
         return "I couldn't finish: the agent used too many tool calls. Try a more specific question.", usage, True

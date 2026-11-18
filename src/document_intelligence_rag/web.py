@@ -1,24 +1,6 @@
 """The web app: accounts, private and shared libraries, and chat.
 
-Run with:
-    uv run uvicorn document_intelligence_rag.web:app --reload
-then open http://127.0.0.1:8000 in your browser.
-
-The API the page calls:
-    POST   /api/signup, /api/login, /api/logout     accounts
-    GET    /api/me                                  who's logged in + their libraries
-    POST   /api/libraries                           create a shared library
-    GET    /api/libraries/{id}/members              list members
-    POST   /api/libraries/{id}/members              invite someone (owner only)
-    DELETE /api/libraries/{id}/members/{username}   remove someone (owner only)
-    GET    /api/libraries/{id}/documents            list documents
-    POST   /api/libraries/{id}/documents/upload     upload a file or image
-    POST   /api/libraries/{id}/documents/link       add a web link
-    DELETE /api/libraries/{id}/documents?source=    remove a document
-    POST   /api/libraries/{id}/chat                 ask the agent a question
-
-Every /api/libraries/{id}/... request first checks that the logged-in user
-is a member of that library.
+Every /api/libraries/{id}/... endpoint first checks that the user is a member.
 """
 
 import shutil
@@ -50,7 +32,7 @@ from document_intelligence_rag.store import StoreError
 
 STATIC_DIR = Path(__file__).parent / "static"
 SUPPORTED_EXTENSIONS = {".pdf", ".docx"} | TEXT_EXTENSIONS | HTML_EXTENSIONS | set(IMAGE_TYPES)
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 SESSION_COOKIE = "session"
 
 app = FastAPI(title="Document Intelligence")
@@ -65,14 +47,12 @@ class Conversation:
     agent: Agent
 
 
-# Each chat has its own agent (and memory). Kept in memory only:
-# restarting the server starts fresh conversations.
+# In memory only, so a restart starts fresh conversations.
 conversations: dict[str, Conversation] = {}
 
 
-# ---- who is asking? ----------------------------------------------------------
+# ---- permissions ---------------------------------------------------------------
 def current_user(request: Request) -> sqlite3.Row:
-    """Find the logged-in user from the session cookie, or answer 401."""
     token = request.cookies.get(SESSION_COOKIE)
     user = store.user_for_session(token) if token else None
     if user is None:
@@ -80,16 +60,11 @@ def current_user(request: Request) -> sqlite3.Row:
     return user
 
 
-# Adding `user: User` to an endpoint makes FastAPI run current_user first.
 User = Annotated[sqlite3.Row, Depends(current_user)]
 
 
 def require_member(library_id: int, user: sqlite3.Row) -> str:
-    """Return the user's role in the library, or answer 404.
-
-    We say "not found" instead of "forbidden" so outsiders can't even
-    learn which libraries exist.
-    """
+    """The user's role, or 404 rather than 403, so outsiders can't learn which libraries exist."""
     role = store.role_in(library_id, user["id"])
     if role is None:
         raise HTTPException(404, "Library not found.")
@@ -106,14 +81,13 @@ def start_session(response: Response, user_id: int) -> None:
         SESSION_COOKIE,
         store.create_session(user_id),
         max_age=store.SESSION_DAYS * 24 * 3600,
-        httponly=True,   # page scripts can't read it, so injected code can't steal it
+        httponly=True,  # injected scripts can't read it
         samesite="lax",  # other websites can't send requests with it
-        secure=False,    # TODO step 9: True once the app runs on HTTPS
+        secure=False,  # TODO step 9: True once the app runs on HTTPS
     )
 
 
 def describe(doc: Document) -> dict:
-    """What the page shows about each document."""
     return {"source": doc.source, "kind": doc.kind, "characters": len(doc.text), "added_by": doc.added_by}
 
 
@@ -226,7 +200,7 @@ def list_documents(library_id: int, user: User) -> list[dict]:
 def upload_document(library_id: int, file: UploadFile, user: User) -> dict:
     require_member(library_id, user)
 
-    # Keep only the file name: "../../secret.txt" must not escape our folder.
+    # Only the name, so "../../secret.txt" can't escape the folder.
     name = Path(file.filename or "").name
     ext = Path(name).suffix.lower()
     if not name or ext not in SUPPORTED_EXTENSIONS:
@@ -238,12 +212,10 @@ def upload_document(library_id: int, file: UploadFile, user: User) -> dict:
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "That file is larger than 20 MB.")
 
-    folder = config.FILES_DIR / str(library_id)  # each library has its own folder
-    # Save the upload in its own temporary folder first, and move it into the
-    # library only once the database has accepted it. Otherwise two uploads with
-    # the same name at the same moment would write to the same file, and the
-    # one that fails would delete the file of the one that succeeded.
-    # The temporary folder keeps the real file name, because the loaders use it.
+    folder = config.FILES_DIR / str(library_id)
+    # Move the upload into the library only after the database accepts it, so
+    # a rejected same-name upload can't overwrite or delete the existing file.
+    # A folder per upload keeps the real file name, which the loaders use.
     upload_dir = config.FILES_DIR / "uploading" / uuid.uuid4().hex
     upload_dir.mkdir(parents=True)
     temp_path = upload_dir / name
@@ -293,7 +265,7 @@ def delete_document(library_id: int, source: str, user: User) -> dict:
     doc = store.get_index(library_id).documents.get(source)
     if doc is None:
         raise HTTPException(404, "No such document.")
-    # In a shared library, members can only remove what they added themselves.
+    # Members can only remove what they added; the owner can remove anything.
     if role != "owner" and doc.added_by != user["username"]:
         raise HTTPException(403, f"Only {doc.added_by} or the library's owner can remove this.")
     store.remove_document(library_id, source)
@@ -305,7 +277,7 @@ def delete_document(library_id: int, source: str, user: User) -> dict:
 # ---- chat ------------------------------------------------------------------------
 class ChatRequest(BaseModel):
     message: str
-    conversation_id: str | None = None  # None starts a new conversation
+    conversation_id: str | None = None  # None starts a new one
 
 
 @app.post("/api/libraries/{library_id}/chat")
@@ -315,7 +287,7 @@ def chat(library_id: int, body: ChatRequest, user: User) -> dict:
     if not message:
         raise HTTPException(400, "Please type a question.")
 
-    # Continue the conversation only if it belongs to this user and library.
+    # Only continue a conversation that belongs to this user and library.
     conversation = conversations.get(body.conversation_id or "")
     if conversation is None or conversation.user_id != user["id"] or conversation.library_id != library_id:
         agent = Agent(

@@ -1,9 +1,4 @@
-"""Loaders: turn files, images and web links into plain text.
-
-Each kind of source stores text differently, so each gets its own reader.
-`load_file` picks a reader by file extension, and `load_url` downloads links. Every reader returns plain text wrapped in the
-same `Document` record, so the rest of the app doesn't care where it came from.
-"""
+"""Turn files, images and web links into plain text Documents."""
 
 import base64
 import io
@@ -27,15 +22,15 @@ IMAGE_TYPES = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
-MAX_IMAGE_BYTES = 5 * 1024 * 1024  # the API accepts images up to 5 MB
+MAX_IMAGE_BYTES = 5 * 1024 * 1024  # the Claude API's limit
 
 
 @dataclass
 class Document:
     text: str
-    source: str    # file name or URL
-    kind: str      # "pdf", "docx", "text", "html", "image" or "web"
-    added_by: str  # who shared it (used for sharing in a later step)
+    source: str  # file name or URL
+    kind: str  # "pdf", "docx", "text", "html", "image" or "web"
+    added_by: str  # username
 
 
 class UnsupportedFileError(Exception):
@@ -52,7 +47,6 @@ def is_url(value: str) -> bool:
 
 # ---- files -----------------------------------------------------------
 def load_file(path: str | Path, added_by: str, client: anthropic.Anthropic | None = None) -> Document:
-    """Pick the right reader based on the file extension."""
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"No file at {path}")
@@ -75,18 +69,17 @@ def load_file(path: str | Path, added_by: str, client: anthropic.Anthropic | Non
 
 
 def read_text(path: Path) -> str:
-    # errors="replace" keeps going if the file has odd characters.
     return path.read_text(encoding="utf-8", errors="replace")
 
 
 def read_pdf(data: bytes) -> str:
-    # Takes bytes, so it works for files on disk and PDFs downloaded from a link.
+    # Takes bytes so it works for downloaded PDFs too.
     reader = PdfReader(io.BytesIO(data))
     pages = []
     for number, page in enumerate(reader.pages, start=1):
         page_text = page.extract_text() or ""
         if page_text.strip():
-            # The page marker lets Claude say where it found an answer.
+            # Lets Claude say which page an answer is on.
             pages.append(f"[Page {number}]\n{page_text}")
     return "\n\n".join(pages)
 
@@ -94,7 +87,7 @@ def read_pdf(data: bytes) -> str:
 def read_docx(path: Path) -> str:
     document = docx.Document(path)
     parts = [p.text for p in document.paragraphs if p.text.strip()]
-    # Tables are stored separately from paragraphs, so read them too.
+    # Tables aren't part of document.paragraphs.
     for table in document.tables:
         for row in table.rows:
             parts.append(" | ".join(cell.text.strip() for cell in row.cells))
@@ -111,7 +104,7 @@ Start with a one-line title for the image. Plain text only, no preamble."""
 
 
 def describe_image(path: Path, client: anthropic.Anthropic | None = None) -> str:
-    """Ask Claude to describe an image, so its content becomes searchable text."""
+    """Have Claude describe an image, so its content becomes searchable text."""
     data = path.read_bytes()
     if len(data) > MAX_IMAGE_BYTES:
         raise LoadError(f"{path.name} is larger than 5 MB. Please resize it first.")
@@ -138,26 +131,25 @@ def describe_image(path: Path, client: anthropic.Anthropic | None = None) -> str
     if response.stop_reason == "refusal":
         raise LoadError(f"Claude declined to describe {path.name}.")
     description = "".join(b.text for b in response.content if b.type == "text")
-    # Note that this is a description, so answers can say so.
+    # Marked, so answers can say they come from a description.
     return f"{description}\n\n(This is an AI-written description of the image file {path.name}.)"
 
 
 # ---- web links -------------------------------------------------------
 def html_to_text(html: str) -> str:
-    """Keep the readable text of a web page, without menus, scripts and styles."""
+    """The readable text of a page, without menus, scripts and styles."""
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript", "svg", "nav", "header", "footer", "form", "aside"]):
         tag.decompose()
-    # Most pages put their real content in <main> or <article>.
     main = soup.find("main") or soup.find("article") or soup.body or soup
     lines = (line.strip() for line in main.get_text("\n").splitlines())
     return "\n".join(line for line in lines if line)
 
 
 def load_url(url: str, added_by: str) -> Document:
-    """Download a web page (or a PDF/text file at a link) and keep its text."""
+    """Download a web page, PDF or text file."""
     try:
-        download = fetch(url)  # refuses private and internal addresses
+        download = fetch(url)
     except FetchError as e:
         raise LoadError(str(e)) from e
 
@@ -168,7 +160,7 @@ def load_url(url: str, added_by: str) -> Document:
         soup = BeautifulSoup(download.text, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else ""
         body = html_to_text(download.text)
-        # Put the page title first: list_documents shows the first line.
+        # Title first, because list_documents shows the first line.
         text = f"{title}\n\n{body}" if title else body
     elif content_type.startswith("text/") or "json" in content_type:
         text = download.text

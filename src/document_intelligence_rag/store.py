@@ -1,20 +1,11 @@
-"""Storage: users, login sessions, libraries and documents, in a SQLite database.
-
-SQLite is a full database kept in a single file (data/app.db). It comes with
-Python, so there's nothing to install or run.
-
-How the tables relate:
+"""Users, login sessions, libraries and documents, in SQLite.
 
     users ──< memberships >── libraries ──< documents
     users ──< sessions
 
-- Every user gets a private "personal" library when they sign up.
-- A shared library can have many members. Its creator is the "owner",
-  who can invite and remove members.
-- Documents belong to one library.
-
-Searching still uses the in-memory SearchIndex from step 3: we build one per
-library from the database the first time it's needed, and keep it up to date.
+Every user gets a personal library at sign-up. A shared library's creator is
+its owner, who manages members. Search indexes are kept in memory, one per
+library, built from the database on first use.
 """
 
 import re
@@ -69,7 +60,7 @@ CREATE TABLE IF NOT EXISTS documents (
 
 
 class StoreError(Exception):
-    """A problem we can explain to the user, like "that username is taken"."""
+    """A problem to show the user, like "that username is taken"."""
 
 
 def now() -> str:
@@ -78,13 +69,13 @@ def now() -> str:
 
 @contextmanager
 def connect():
-    """Open the database for one task. Changes are saved at the end, or undone on an error."""
+    """Commits at the end, or rolls back on an error."""
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(config.DB_PATH, timeout=10)
-    db.row_factory = sqlite3.Row  # rows act like dicts: row["username"]
+    db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
     try:
-        with db:  # commit on success, roll back on error
+        with db:
             yield db
     finally:
         db.close()
@@ -118,7 +109,7 @@ def create_user(username: str, password: str) -> int:
 
 
 def check_login(username: str, password: str) -> int | None:
-    """Return the user id if the username and password match, else None."""
+    """The user id if the username and password match, else None."""
     with connect() as db:
         row = db.execute(
             "SELECT id, password_hash FROM users WHERE username = ?",
@@ -129,9 +120,9 @@ def check_login(username: str, password: str) -> int | None:
     return None
 
 
-# ---- sessions (staying logged in) ----------------------------------------
+# ---- sessions ----------------------------------------------------------------
 def create_session(user_id: int) -> str:
-    """Start a login session. Returns the token to put in the browser's cookie."""
+    """Returns the token for the browser's cookie."""
     token = auth.new_token()
     expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
     with connect() as db:
@@ -143,7 +134,7 @@ def create_session(user_id: int) -> str:
 
 
 def user_for_session(token: str) -> sqlite3.Row | None:
-    """Who does this login token belong to? None if it's unknown or expired."""
+    """None if the token is unknown or expired."""
     with connect() as db:
         return db.execute(
             """SELECT users.id, users.username FROM sessions
@@ -255,12 +246,12 @@ def remove_member(library_id: int, username: str) -> None:
 
 
 # ---- documents and search indexes ------------------------------------------
-_indexes: dict[int, SearchIndex] = {}  # library id -> its search index
-_index_lock = threading.Lock()  # one change at a time, across all requests
+_indexes: dict[int, SearchIndex] = {}  # by library id
+_index_lock = threading.Lock()  # requests run in parallel threads
 
 
 def get_index(library_id: int) -> SearchIndex:
-    """The search index for a library, built from the database on first use."""
+    """Built from the database on first use."""
     with _index_lock:
         if library_id not in _indexes:
             index = SearchIndex()
@@ -276,7 +267,7 @@ def get_index(library_id: int) -> SearchIndex:
 
 
 def add_document(library_id: int, doc: Document) -> int:
-    """Save a document and add it to the library's search. Returns its number of chunks."""
+    """Save a document and index it. Returns its number of chunks."""
     index = get_index(library_id)
     with _index_lock:
         with connect() as db:
