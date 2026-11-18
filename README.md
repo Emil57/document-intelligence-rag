@@ -64,6 +64,13 @@ uv run pytest
 
 The tests use a fake Claude client, so they're free and need no API key. They cover chunking,
 search, the agent loop, and the web app's access rules (who can see and change what).
+GitHub Actions runs them on every push and pull request.
+
+### Deploy
+
+Every push to `main` is tested, built into a Docker image and deployed to a server on AWS
+Lightsail, with HTTPS from Caddy. The one-time server setup is in
+[docs/deploy-aws.md](docs/deploy-aws.md). Until it's done, the workflow only runs the tests.
 
 ## How it works
 
@@ -105,10 +112,16 @@ src/document_intelligence_rag/
 ├── search.py        BM25 keyword search
 ├── agent.py         the agent: tools, agent loop and conversation memory
 ├── auth.py          password hashing and login tokens
-├── store.py         SQLite database: users, sessions, libraries, members, documents
+├── store.py         SQLite database: users, sessions, libraries, members, documents, usage
+├── spending.py      what Claude calls cost, and the daily limits
 ├── web.py           FastAPI server and API, with permission checks
 └── static/
     └── index.html   the web page
+
+Dockerfile           the app's Docker image
+deploy/              the server setup: Docker Compose and Caddy (HTTPS)
+.github/workflows/   tests on every push; deploy on pushes to main
+docs/deploy-aws.md   one-time server setup on AWS Lightsail
 ```
 
 ## Configuration
@@ -153,13 +166,14 @@ table, so also set a monthly spend limit at platform.claude.com as a final safet
   - [x] Links can't reach private or internal network addresses
   - [x] Spending limits per user and for the whole app
   - [ ] Login rate limits
-  - [ ] Production settings: secure cookies on HTTPS, one worker
-  - [ ] Hosting with HTTPS and a persistent disk, plus backups
+  - [x] Production settings: secure cookies on HTTPS, one worker, health check
+  - [x] Deploy with Docker and GitHub Actions to AWS Lightsail, with HTTPS from Caddy
+  - [ ] Backups: turn on Lightsail's automatic snapshots (see the deploy guide)
 - [ ] Later: search by meaning (embeddings), audio/video transcription, answer-quality tests
 
 ## Known limitations
 
-- No HTTPS yet, and no limit on login attempts (step 9)
+- No limit on login attempts yet (step 9)
 - Libraries from the step 7 version (`data/library.json`) aren't imported; upload them again
 - Conversations live in memory, so restarting the server starts fresh chats (the library stays)
 - Scanned PDFs (photos of pages) have no text to extract
