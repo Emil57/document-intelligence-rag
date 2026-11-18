@@ -104,6 +104,14 @@ def home() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/health")
+def health() -> dict:
+    """For the server's health check: answers only if the app and its database work."""
+    with store.connect() as db:
+        db.execute("SELECT 1")
+    return {"ok": True}
+
+
 # ---- accounts ----------------------------------------------------------------
 class Credentials(BaseModel):
     username: str

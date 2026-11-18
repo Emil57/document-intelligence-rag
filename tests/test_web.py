@@ -193,3 +193,7 @@ def test_the_page_gets_todays_spending(app_client, monkeypatch):
     monkeypatch.setattr(web, "client", FakeClient(reply("end_turn", text("Hello!"))))
     answer = ana.post(f"/api/libraries/{personal_library(ana)}/chat", json={"message": "hi"}).json()
     assert answer["spending"]["today"] > 0.03  # includes the question just asked
+
+
+def test_health_check_needs_no_login(app_client):
+    assert app_client.get("/health").json() == {"ok": True}
