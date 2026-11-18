@@ -120,6 +120,8 @@ Optional settings go in `.env`:
 | `ANTHROPIC_API_KEY` | (required) | Your Claude API key |
 | `DOCINTEL_MODEL` | `claude-haiku-5-5` | Model that answers questions and describes images. Try `claude-sonnet-5-5` or `claude-opus-5-5` for better answers |
 | `DOCINTEL_SIGNUP_CODE` | (none) | If set, creating an account requires this code |
+| `DOCINTEL_USER_DAILY_LIMIT_USD` | `0.50` | Most each user can spend on Claude per day (UTC) |
+| `DOCINTEL_APP_DAILY_LIMIT_USD` | `5.00` | Most all users together can spend per day |
 | `DOCINTEL_DATA_DIR` | `data` | Where the web app saves its database (`app.db`) and uploaded files (`files/<library id>/`) |
 
 The `data/` folder is in `.gitignore` because it holds accounts and private documents.
@@ -130,7 +132,12 @@ Passwords are stored only as salted scrypt hashes, and login tokens only as SHA-
 The API is billed per token (roughly ¾ of a word). With the default model, Claude Haiku 5.5
 ($0.10 per million input tokens, $0.50 per million output), a typical question costs well under
 a tenth of a cent. The web page shows the tokens used for every answer.
-Set a monthly spend limit at platform.claude.com to avoid surprises.
+
+Every Claude call is recorded with its estimated cost. The person asking pays for a question
+(even in a shared library) and the uploader for an image description. When a user, or the app
+as a whole, reaches its daily limit, questions and image uploads stop until midnight UTC; the page
+shows each user's spending for the day. The costs are estimates from `spending.py`'s price
+table, so also set a monthly spend limit at platform.claude.com as a final safety net.
 
 ## Roadmap
 
@@ -144,7 +151,7 @@ Set a monthly spend limit at platform.claude.com to avoid surprises.
 - [x] 8. Users and sharing: sign-in, private libraries, shared libraries for groups
 - [ ] 9. Going online
   - [x] Links can't reach private or internal network addresses
-  - [ ] Spending limits per user
+  - [x] Spending limits per user and for the whole app
   - [ ] Login rate limits
   - [ ] Production settings: secure cookies on HTTPS, one worker
   - [ ] Hosting with HTTPS and a persistent disk, plus backups

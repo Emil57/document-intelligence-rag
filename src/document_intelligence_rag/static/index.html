@@ -111,6 +111,7 @@
   </div>
   <div class="user" id="user-box" hidden>
     <span id="username"></span>
+    <span id="spending" title="Claude API costs you've used today. The limit resets at midnight UTC."></span>
     <button class="ghost" id="logout">Log out</button>
   </div>
 </header>
@@ -255,9 +256,15 @@
   });
 
   // ---- libraries -------------------------------------------------------------------
+  function showSpending({ today, limit }) {
+    const used = today > 0 && today < 0.01 ? "under $0.01" : `$${today.toFixed(2)}`;
+    $("spending").textContent = `· ${used} of $${limit.toFixed(2)} today`;
+  }
+
   async function loadMe(selectId) {
     state.me = await api("/api/me");
     $("username").textContent = state.me.username;
+    showSpending(state.me.spending);
     const saved = Number(localStorage.getItem("libraryId"));
     const ids = state.me.libraries.map((l) => l.id);
     state.libraryId = [selectId, saved].find((id) => ids.includes(id)) ?? ids[0];
@@ -397,6 +404,7 @@
       try {
         const doc = await api(lib("/documents/upload"), { method: "POST", body: form });
         setStatus(`Added ${doc.source} (${doc.chunks} chunks).`);
+        showSpending(doc.spending);
       } catch (e) { setStatus(`${file.name}: ${e.message}`, true); }
       loadDocuments();
     }
@@ -462,6 +470,7 @@
       const tools = reply.tools.length ? `Used: ${reply.tools.join(", ")} · ` : "";
       const tokens = `${reply.usage.input_tokens.toLocaleString()} tokens in, ${reply.usage.output_tokens.toLocaleString()} out`;
       addMessage("claude", reply.answer, tools + tokens);
+      showSpending(reply.spending);
       if (reply.tools.some((t) => t.startsWith("add_link"))) loadDocuments();
     } catch (e) {
       waiting.remove();

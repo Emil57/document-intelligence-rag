@@ -149,7 +149,11 @@ def logout(request: Request, response: Response) -> dict:
 
 @app.get("/api/me")
 def me(user: User) -> dict:
-    return {"username": user["username"], "libraries": store.libraries_for(user["id"])}
+    return {
+        "username": user["username"],
+        "libraries": store.libraries_for(user["id"]),
+        "spending": spending.summary(user["id"]),
+    }
 
 
 # ---- libraries and members ----------------------------------------------------
@@ -250,7 +254,7 @@ def upload_document(library_id: int, file: UploadFile, user: User) -> dict:
         raise HTTPException(400, f"Couldn't read {name}: {e}")
     finally:
         shutil.rmtree(upload_dir, ignore_errors=True)
-    return {**describe(doc), "chunks": chunks}
+    return {**describe(doc), "chunks": chunks, "spending": spending.summary(user["id"])}
 
 
 class LinkRequest(BaseModel):
@@ -333,4 +337,5 @@ def chat(library_id: int, body: ChatRequest, user: User) -> dict:
         "answer": answer,
         "tools": conversation.agent.tool_calls,
         "usage": {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+        "spending": spending.summary(user["id"]),
     }

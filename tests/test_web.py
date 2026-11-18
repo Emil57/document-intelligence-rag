@@ -182,3 +182,14 @@ def test_everyone_stops_when_the_app_limit_is_reached(app_client, monkeypatch):
     response = ana.post(f"/api/libraries/{personal_library(ana)}/chat", json={"message": "hi"})
     assert response.status_code == 429
     assert "app has reached" in response.json()["detail"]
+
+
+def test_the_page_gets_todays_spending(app_client, monkeypatch):
+    monkeypatch.setattr(config, "USER_DAILY_LIMIT_USD", 0.50)
+    ana = sign_up(app_client, "ana")
+    spend("ana", 0.03)
+    assert ana.get("/api/me").json()["spending"] == {"today": 0.03, "limit": 0.50}
+
+    monkeypatch.setattr(web, "client", FakeClient(reply("end_turn", text("Hello!"))))
+    answer = ana.post(f"/api/libraries/{personal_library(ana)}/chat", json={"message": "hi"}).json()
+    assert answer["spending"]["today"] > 0.03  # includes the question just asked

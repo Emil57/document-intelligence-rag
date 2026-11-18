@@ -58,3 +58,8 @@ def check(user_id: int) -> None:
         )
     if spent_today(None) >= config.APP_DAILY_LIMIT_USD:
         raise LimitReached("The app has reached its daily spending limit. Please try again after midnight UTC.")
+
+
+def summary(user_id: int) -> dict:
+    """What the page shows: the user's spending today and their limit."""
+    return {"today": round(spent_today(user_id), 6), "limit": config.USER_DAILY_LIMIT_USD}
