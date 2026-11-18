@@ -17,7 +17,6 @@ class Chunk:
     text: str
     source: str    # file it came from
     index: int     # position in that file: 0, 1, 2, ...
-    added_by: str  # who shared the file
 
 
 def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
@@ -60,6 +59,6 @@ def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) 
 def chunk_document(doc: Document) -> list[Chunk]:
     """Split a Document into Chunks that remember where they came from."""
     return [
-        Chunk(text=piece, source=doc.source, index=i, added_by=doc.added_by)
+        Chunk(text=piece, source=doc.source, index=i)
         for i, piece in enumerate(chunk_text(doc.text))
     ]

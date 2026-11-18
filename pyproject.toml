@@ -1,7 +1,7 @@
 [project]
 name = "document-intelligence-rag"
 version = "0.1.0"
-description = "Add your description here"
+description = "An AI agent you can share documents, images and links with, then ask questions about them."
 readme = "README.md"
 authors = [
     { name = "Emil57", email = "trejocovantesde@gmail.com" }
@@ -18,9 +18,6 @@ dependencies = [
     "python-multipart>=0.0.33",
     "uvicorn[standard]>=0.54.0",
 ]
-
-[project.scripts]
-document-intelligence-rag = "document_intelligence_rag:main"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
