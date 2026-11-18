@@ -1,0 +1,12 @@
+# Keep secrets, private data and local junk out of the image.
+.env
+data/
+samples/
+.venv/
+.git/
+.github/
+tests/
+deploy/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
